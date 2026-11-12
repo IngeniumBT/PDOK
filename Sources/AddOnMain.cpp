@@ -14,6 +14,7 @@
 #include "AddOnBuildCommit.hpp"
 #include "AddOnVersion.hpp"
 #include "ResourceIds.hpp"
+#include "Commands.hpp"
 #include "EngineHost.hpp"
 #include "ImportPalette.hpp"
 
@@ -46,7 +47,10 @@ static void ShowAlert (short type, const GS::UniString& message, const GS::UniSt
 
 static void OpenImportPalette ()
 {
-    const EngineHost::StartResult engine = EngineHost::EnsureRunning (BuildId ());
+    GS::UShort archicadPort = 0;
+    ACAPI_Command_GetHttpConnectionPort (&archicadPort);
+
+    const EngineHost::StartResult engine = EngineHost::EnsureRunning (BuildId (), static_cast<int> (archicadPort));
     if (!engine.ok) {
         ShowAlert (DG_ERROR, GS::UniString ("De motor van PDOK Import kon niet worden gestart."),
                    FromUtf8 (engine.error + "\n\nLogboek: " + engine.logPath));
@@ -135,6 +139,7 @@ GSErrCode Initialize (void)
     err |= ACAPI_Install_MenuHandler (ID_ADDON_MENU, MenuCommandHandler);
 #endif
     err |= ImportPalette::RegisterPaletteControlCallBack ();
+    err |= PdokCommands::RegisterAll ();
     ACAPI_WriteReport ("PDOK Import geladen.", false);
     return err;
 }

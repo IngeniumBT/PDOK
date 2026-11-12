@@ -28,7 +28,8 @@ struct Status
 
 // Pakt de motor zo nodig uit (eenmalig per versie), start hem als hij nog niet draait, en wacht op zijn poort.
 // `buildId` bepaalt de map (%LOCALAPPDATA%\PDOKImport\<buildId>), zodat een nieuwe versie een verse motor krijgt.
-StartResult EnsureRunning (const std::string& buildId);
+// `archicadPort` is de poort van Archicads JSON-interface; de motor gebruikt die om onze opdrachten aan te roepen.
+StartResult EnsureRunning (const std::string& buildId, int archicadPort);
 
 // Stopt de motor (ook als Archicad sluit of crasht, dan doet Windows dat zelf via een 'job').
 void Stop ();

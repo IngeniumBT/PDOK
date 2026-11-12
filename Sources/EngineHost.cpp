@@ -266,7 +266,7 @@ std::string NumberToString (unsigned long value)
 } // namespace
 
 // ------------------------------------------------------------------ openbaar
-StartResult EnsureRunning (const std::string& buildId)
+StartResult EnsureRunning (const std::string& buildId, int archicadPort)
 {
     StartResult result;
 
@@ -351,7 +351,8 @@ StartResult EnsureRunning (const std::string& buildId)
 
     const std::string pythonExe = Join (pythonFolder, "python.exe");
     const std::string commandLine = QuoteArgument (pythonExe) + " -X utf8 -u " + QuoteArgument (Join (appFolder, "engine.py")) +
-                                    " --port-file " + QuoteArgument (portFile) + " --parent-pid " + NumberToString (GetCurrentProcessId ());
+                                    " --port-file " + QuoteArgument (portFile) + " --parent-pid " + NumberToString (GetCurrentProcessId ()) +
+                                    " --archicad-port " + NumberToString (static_cast<unsigned long> (archicadPort));
     std::vector<wchar_t> command = ToWide (commandLine);
     const std::vector<wchar_t> workingDirectory = ToWide (appFolder);
 
