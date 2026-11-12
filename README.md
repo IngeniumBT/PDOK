@@ -10,6 +10,8 @@ Eén `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat ee
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.7.0:** de opdracht **CreateTexts**: de **perceelnummers** (kadaster) en de **teksten van het bestemmingsplan** komen nu binnen.
+  Het paneel heeft **A-** en **A+** voor de tekstgrootte (standaard 80% in het palet; de kaart zelf verandert niet).
 - **0.6.0: de echte kaart en import in het palet.** BGT- en kadasterlagen (als vlakken en polylijnen) en de **bomen**
   worden vanuit het palet geimporteerd, via de opdrachten van de add-on zelf. 3D-gebouwen, 3D-terrein en teksten staan nog
   uitgeschakeld (die opdrachten volgen). Het testpaneel staat nu op de link **testpaneel** rechtsonder.
@@ -50,8 +52,12 @@ Archicad: **PDOK Import > PDOK Import openen...**. Het palet toont nu de **kaart
 3. **Bomen**: vink *Bomen* aan (objectnaam standaard "Boom stedenbouw 02"). Ze komen op de laag `3D_bomen`, op de hoogte van het
    terrein (uit de 3D Basisvoorziening van PDOK; de eerste keer duurt het ophalen van de tegel even), met het ID `BOOM-<BGT-id>`.
    Een tweede keer importeren plaatst geen dubbelen.
-4. **Nog niet beschikbaar** (de opties zijn uitgeschakeld): 3D-gebouwen, 3D-terrein, en teksten (perceelnummers, plan-teksten).
-5. De gedownloade 3D-gegevens bewaart de motor in `%LOCALAPPDATA%\PDOKImport\cache`.
+4. **Teksten**: de perceelnummers (laag `KAD_perceelnummer`) en de maatvoering/teksten van het bestemmingsplan worden nu ook getekend.
+   Kijk of ze leesbaar zijn (hoogte 2,5), op de goede plek staan, en of een tekst met meerdere regels meerdere regels toont.
+   Het testpaneel heeft ook een knop **Test: tekst plaatsen**.
+5. **Tekstgrootte van het paneel**: met **A-** en **A+** bovenaan het paneel. De keuze wordt onthouden.
+6. **Nog niet beschikbaar** (de opties zijn uitgeschakeld): 3D-gebouwen en 3D-terrein.
+7. De gedownloade 3D-gegevens bewaart de motor in `%LOCALAPPDATA%\PDOKImport\cache`.
 
 ## Wat je terugmeldt
 

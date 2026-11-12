@@ -1047,6 +1047,150 @@ protected:
     }
 };
 
+
+// ================================================================== groep 2 (deel 2): teksten
+
+// Een tekst bestaat in Archicad uit het tekstblok, een alinea met een stuk opmaak (run) en de regeleinden (eolPos).
+// Naar Tapirs SetParagraph, SetRun, SetEOL en SetLineEnds.
+GSErrCode SetParagraph (API_ParagraphType** paragraph, UInt32 parNum, Int32 from, Int32 range, Int32 numOfTabs, Int32 numOfRuns, Int32 numOfEolPos)
+{
+    if (paragraph == nullptr || parNum >= (BMhGetSize (reinterpret_cast<GSHandle> (paragraph)) / sizeof (API_ParagraphType))) {
+        return APIERR_BADPARS;
+    }
+    if (numOfTabs < 1 || numOfRuns < 1 || numOfEolPos < 0) {
+        return APIERR_BADPARS;
+    }
+    (*paragraph)[parNum].from = from;
+    (*paragraph)[parNum].range = range;
+    (*paragraph)[parNum].tab = reinterpret_cast<API_TabType*> (BMpAllClear (numOfTabs * sizeof (API_TabType)));
+    (*paragraph)[parNum].run = reinterpret_cast<API_RunType*> (BMpAllClear (numOfRuns * sizeof (API_RunType)));
+    if (numOfEolPos > 0) {
+        (*paragraph)[parNum].eolPos = reinterpret_cast<Int32*> (BMpAllClear (numOfEolPos * sizeof (Int32)));
+    }
+    return NoError;
+}
+
+GSErrCode SetRun (API_ParagraphType** paragraph, UInt32 parNum, UInt32 runNum, Int32 from, Int32 range, short pen, unsigned short faceBits,
+                  short font, Int32 effectBits, double size)
+{
+    if (paragraph == nullptr || parNum >= (BMhGetSize (reinterpret_cast<GSHandle> (paragraph)) / sizeof (API_ParagraphType))) {
+        return APIERR_BADPARS;
+    }
+    if (runNum >= BMGetPtrSize (reinterpret_cast<GSPtr> ((*paragraph)[parNum].run)) / sizeof (API_RunType)) {
+        return APIERR_BADPARS;
+    }
+    (*paragraph)[parNum].run[runNum].from = from;
+    (*paragraph)[parNum].run[runNum].range = range;
+    (*paragraph)[parNum].run[runNum].pen = pen;
+    (*paragraph)[parNum].run[runNum].faceBits = faceBits;
+    (*paragraph)[parNum].run[runNum].font = font;
+    (*paragraph)[parNum].run[runNum].effectBits = static_cast<unsigned short> (effectBits);
+    (*paragraph)[parNum].run[runNum].size = size;
+    return NoError;
+}
+
+GSErrCode SetEndOfLine (API_ParagraphType** paragraph, UInt32 parNum, UInt32 eolNum, Int32 offset)
+{
+    if (paragraph == nullptr || parNum >= (BMhGetSize (reinterpret_cast<GSHandle> (paragraph)) / sizeof (API_ParagraphType))) {
+        return APIERR_BADPARS;
+    }
+    if (eolNum >= BMGetPtrSize (reinterpret_cast<GSPtr> ((*paragraph)[parNum].eolPos)) / sizeof (Int32)) {
+        return APIERR_BADPARS;
+    }
+    if (offset < 0) {
+        return APIERR_BADPARS;
+    }
+    (*paragraph)[parNum].eolPos[eolNum] = offset;
+    return NoError;
+}
+
+// Per regel de positie van het laatste teken, groeiend van regel tot regel (zie Tapirs toelichting, #2461).
+void SetLineEnds (API_ParagraphType** paragraph, const GS::UniString& text, Int32 nLine)
+{
+    const GS::UniChar newlineChar = GS::UniChar (char ('\n'));
+    const Int32 textLength = static_cast<Int32> (text.GetLength ());
+    Int32 lineStart = 0;
+    for (Int32 eolIndex = 0; eolIndex < nLine; ++eolIndex) {
+        const UIndex newlinePos = (lineStart < textLength) ? text.FindFirst (newlineChar, static_cast<UIndex> (lineStart)) : MaxUIndex;
+        const Int32 lineEnd = (newlinePos != MaxUIndex) ? static_cast<Int32> (newlinePos) : textLength;
+        SetEndOfLine (paragraph, 0, static_cast<UInt32> (eolIndex), GS::Max (lineEnd - 1, static_cast<Int32> (0)));
+        lineStart = lineEnd + 1;
+    }
+}
+
+// ---- CreateTexts {textsData: [{text, coordinate: {x, y}, floorIndex?, layerIndex?, height?, pen?, angle?, justification?, id?}]}
+class CreateTextsCommand final : public Create2DCommand
+{
+public:
+    virtual GS::String GetName () const override { return "CreateTexts"; }
+
+protected:
+    virtual const char*     ArrayField () const override { return "textsData"; }
+    virtual const char*     UndoText () const override { return "PDOK Import: teksten maken"; }
+    virtual API_ElemTypeID  TypeId () const override { return API_TextID; }
+    virtual GS::UniString   Description () const override { return "De tekst"; }
+
+    virtual GS::Optional<GS::ObjectState> Fill (API_Element& element, API_ElementMemo& memo, const GS::ObjectState& item) const override
+    {
+        const GS::ObjectState* coordinate = item.Get ("coordinate");
+        if (coordinate == nullptr) {
+            return ErrorResponse (APIERR_BADPARS, "coordinate ontbreekt.");
+        }
+        GS::UniString text;
+        if (!item.Get ("text", text)) {
+            return ErrorResponse (APIERR_BADPARS, "text ontbreekt.");
+        }
+        text.ReplaceAll ("\r\n", "\n");
+        text.ReplaceAll ("\r", "\n");
+
+        short floorIndex = 0;
+        if (item.Get ("floorIndex", floorIndex)) {
+            element.header.floorInd = floorIndex;
+        }
+        coordinate->Get ("x", element.text.loc.x);
+        coordinate->Get ("y", element.text.loc.y);
+
+        item.Get ("height", element.text.size);
+        item.Get ("pen", element.text.pen);
+        item.Get ("angle", element.text.angle);
+        GS::UniString justification;
+        if (item.Get ("justification", justification)) {
+            element.text.just = justification == "Center" ? APIJust_Center : (justification == "Right" ? APIJust_Right : APIJust_Left);
+        }
+
+        // De inhoud: het tekstblok, een alinea met een run, en de regeleinden.
+        delete memo.textContent;
+        memo.textContent = new GS::UniString { text };
+
+        const GS::UniChar newlineChar = GS::UniChar (char ('\n'));
+        element.text.nLine = text.Count (newlineChar) + 1;
+
+        // Oude alinea's en regelstarten (voor de standaardinhoud) moeten weg voordat de nieuwe inhoud erin komt.
+        if (memo.paragraphs != nullptr) {
+            ACAPI_DisposeParagraphsHdl (&memo.paragraphs);
+            memo.paragraphs = nullptr;
+        }
+        if (memo.textLineStarts != nullptr) {
+            BMKillHandle (reinterpret_cast<GSHandle*> (&memo.textLineStarts));
+        }
+
+        memo.paragraphs = reinterpret_cast<API_ParagraphType**> (BMhAll (1 * sizeof (API_ParagraphType)));
+        SetParagraph (memo.paragraphs, 0, 0, static_cast<Int32> (text.GetLength ()), 1, 1, element.text.nLine);
+        (*memo.paragraphs)[0].just = element.text.just;
+        SetRun (memo.paragraphs, 0, 0, 0, static_cast<Int32> (text.GetLength ()), element.text.pen, element.text.faceBits,
+                element.text.font, element.text.effectsBits, element.text.size);
+        SetLineEnds (memo.paragraphs, text, element.text.nLine);
+
+        // Automatische breedte, een stijl per run (zonder dit maakt Archicad een run in de elementstijl).
+        element.text.width = 0;
+        element.text.height = 0;
+        element.text.nonBreaking = true;
+        element.text.multiStyle = true;
+        element.text.useEolPos = true;
+        return {};
+    }
+};
+
 // ---- GetSelectedElements -> {elements: [{elementId}]}
 class GetSelectedElementsCommand final : public CommandBase
 {
@@ -1105,6 +1249,7 @@ GSErrCode RegisterAll ()
     err |= Register<CreatePolylinesCommand> ();
     err |= Register<CreateHatchesCommand> ();
     err |= Register<CreateObjectsCommand> ();
+    err |= Register<CreateTextsCommand> ();
     return err;
 }
 

@@ -79,6 +79,7 @@ button{padding:5px 10px;margin:2px 6px 2px 0}
  x <input id="x0" value="260250" size="8"> y <input id="y0" value="482250" size="8">
  <button id="b_lijn">Test: polylijn tekenen</button>
  <button id="b_vlak">Test: vlak met gat tekenen</button>
+ <button id="b_tekst">Test: tekst plaatsen</button>
 </div>
 <div><b>Groep 3 (3D):</b> bibliotheekobject
  <input id="objnaam" value="Boom stedenbouw 02" size="22"> op hoogte z <input id="z0" value="0" size="6"> m
@@ -233,6 +234,15 @@ knop.b_obj = async () => {
   }
   schrijf(e.elementId ? 'Object "' + naam + '" geplaatst op (' + (x + 30) + ', ' + y + ') op hoogte ' + z + ' m, ID TEST-OBJ' + (plan ? ' (na wisselen naar de plattegrond)' : ' (in het huidige venster)') + '.'
                       : 'Object mislukt: ' + JSON.stringify(e.error || e));
+};
+knop.b_tekst = async () => {
+  const laag = await testlaagIndex(); if (laag === null) return;
+  if (!(await naarPlattegrond())) return;
+  const [x, y] = xy();
+  const p = await stap('Tekst', 'CreateTexts', {textsData: [{floorIndex: 0, layerIndex: laag, height: 2.5, pen: 3,
+      text: 'PDOK test\nregel twee', coordinate: {x: x, y: y + 45}}]}); if (!p) return;
+  const e = (p.elements || [])[0] || {};
+  schrijf(e.elementId ? 'Tekst met twee regels geplaatst op laag PDOK_test rond (' + x + ', ' + (y + 45) + '), hoogte 2,5.' : 'Tekst mislukt: ' + JSON.stringify(e.error || e));
 };
 knop.b_basis = async () => {
   schrijf('--- basistests ---');

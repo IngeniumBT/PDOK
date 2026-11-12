@@ -124,7 +124,7 @@ TIJDSLIMIET = (10, 900)   # seconden: (verbinden, wachten op een antwoord van Ar
 NAMESPACE = "PDOKImport"   # de opdrachten van de add-on zelf (niet meer van Tapir)
 
 # Wat de add-on al kan. Wat nog niet beschikbaar is, wordt in de pagina uitgeschakeld en overgeslagen.
-BESCHIKBAAR = {"tekst": False, "gebouwen": False, "terrein": False, "bomen": True}
+BESCHIKBAAR = {"tekst": True, "gebouwen": False, "terrein": False, "bomen": True}
 
 
 def zet_archicad_poort(poort):
@@ -1095,7 +1095,7 @@ PAGINA = """<!DOCTYPE html>
 </style></head><body>
 <div style="position:fixed;right:6px;bottom:4px;font-size:11px;z-index:5"><a href="/test">testpaneel</a></div>
 <div id="paneel">
- <h3>PDOK naar Archicad</h3>
+ <h3>PDOK naar Archicad <span style="float:right;font-weight:normal"><button id="kleiner" title="Kleinere tekst in dit paneel" style="width:auto;margin:0;padding:1px 8px">A-</button> <button id="groter" title="Grotere tekst in dit paneel" style="width:auto;margin:0;padding:1px 8px">A+</button></span></h3>
  <input type="text" id="adres" placeholder="Zoek een adres...">
  <button id="zoek">Zoeken</button>
  <button id="heelnl" title="Toon heel Nederland">Heel Nederland</button>
@@ -1156,6 +1156,17 @@ if (location.search.indexOf('palet=1') >= 0) {                  // we draaien in
   eb.style.display = 'block';
   eb.onclick = () => fetch('/extern');
 }
+// De tekstgrootte van het paneel (niet van de kaart): in het palet standaard iets kleiner, en met A- en A+ te kiezen.
+let schaal = location.search.indexOf('palet=1') >= 0 ? 0.8 : 1.0;
+try { const o = parseFloat(localStorage.getItem('pdok_schaal')); if (o >= 0.5 && o <= 1.6) schaal = o; } catch (e) {}
+function zetSchaal(s) {
+  schaal = Math.max(0.5, Math.min(1.6, Math.round(s * 100) / 100));
+  document.getElementById('paneel').style.zoom = schaal;
+  try { localStorage.setItem('pdok_schaal', String(schaal)); } catch (e) {}
+}
+zetSchaal(schaal);
+document.getElementById('kleiner').onclick = () => zetSchaal(schaal - 0.1);
+document.getElementById('groter').onclick = () => zetSchaal(schaal + 0.1);
 const BESCHIKBAAR = __BESCHIKBAAR__;
 function nogNiet(ids) {                                          // een onderdeel dat de add-on nog niet kan
   ids.forEach(id => {
