@@ -1,0 +1,11 @@
+#include "ResourceIds.hpp"
+
+'STR#' ID_ADDON_INFO "Add-on Name and Description" {
+/* [  1] */		"PDOK Import"
+/* [  2] */		"Importeert PDOK-gegevens (BGT, kadaster, terrein, gebouwen en bomen) in Archicad"
+}
+
+'STR#' ID_ADDON_MENU "Add-On Menu" {
+/* [   ] */		"PDOK Import"
+/* [  1] */		"Over PDOK Import...^E3^ES^EE^EI^ED^EL^EW^ET^EM^10001"
+}
