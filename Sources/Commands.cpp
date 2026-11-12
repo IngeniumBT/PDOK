@@ -201,7 +201,7 @@ public:
                 target.path = folderPath;
                 target.guid = GS::Guid ();
                 if (ACAPI_Attribute_GetFolder (target) == NoError && !target.guid.IsNull ()) {
-                    GS::Array<GS::Guid> noFolders;
+                    GS::Array<API_AttributeFolder> noFolders;     // de eerste parameter zijn de te verplaatsen mappen
                     GS::Array<GS::Guid> layersToMove;
                     layersToMove.Push (APIGuid2GSGuid (attribute.header.guid));
                     ACAPI_Attribute_Move (noFolders, layersToMove, target);
