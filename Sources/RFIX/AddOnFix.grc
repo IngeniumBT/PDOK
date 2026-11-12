@@ -1,6 +1,6 @@
 'MDID' 32500 "Add-On Identifier" {
-	1 /* TODO: vervang door JOUW developer ID (zie README.md, stap "MDID") */
-	1 /* TODO: vervang door JOUW local ID (zie README.md, stap "MDID") */
+	1126395204
+	1089693054
 }
 
 'GICN' 10001 "AddOnIcon" {
