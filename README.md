@@ -10,6 +10,8 @@ Eén `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat ee
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.5.0 (groep 3, deel 1):** de opdracht **CreateObjects** voor bibliotheekobjecten (zoals de bomen): op naam zoeken, plaatsen op
+  een absolute hoogte (omgerekend naar de verdieping), met afmetingen (A, B, ZZYZX), draaiing, laag en ID.
 - **0.4.1:** een ID voor een element dat er geen kan hebben (lijn, polylijn) verwijdert het element niet meer.
 - **0.4 (groep 2, deel 1):** de opdrachten **CreatePolylines** en **CreateHatches** (vlakken met gaten, pennen, kleur en
   effen vulling), en bij het wisselen van venster meldt de add-on nu ook de **database** waarin de opdrachten werken.
@@ -52,7 +54,10 @@ Archicad: **PDOK Import > PDOK Import openen...**. Het palet toont bovenaan de m
    effen vulling in het project is), pen 1 voor de rand, ID `TEST-VLAK`.
 5. Zoom in Archicad naar die plek, of kies *Bewerken > Selecteren > Alle elementen op een laag* voor `PDOK_test`. Kijk of
    het vlak het gat heeft, de kleur klopt en de lijn er staat.
-6. **Elementen op de testlaag tonen** en **verwijderen** (twee klikken) ruimen alles weer op. **Ongedaan maken** brengt het terug.
+6. **Groep 3 (3D)**: vul de naam van het bibliotheekobject in (standaard "Boom stedenbouw 02") en een hoogte z in meter NAP, en kies
+   **Test: object plaatsen**. Het object komt 30 m naast de andere testvormen, op de laag `PDOK_test`, met ID `TEST-OBJ`. Controleer in
+   3D of het object **op de gekozen hoogte** staat (de voet van de stam op die z) en 6 x 6 x 10 m groot is.
+7. **Elementen op de testlaag tonen** en **verwijderen** (twee klikken) ruimen alles weer op. **Ongedaan maken** brengt het terug.
 
 ## Wat je terugmeldt
 

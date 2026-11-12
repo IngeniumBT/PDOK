@@ -100,6 +100,10 @@ button{padding:5px 10px;margin:2px 6px 2px 0}
  <button id="b_lijn">Test: polylijn tekenen</button>
  <button id="b_vlak">Test: vlak met gat tekenen</button>
 </div>
+<div><b>Groep 3 (3D):</b> bibliotheekobject
+ <input id="objnaam" value="Boom stedenbouw 02" size="22"> op hoogte z <input id="z0" value="0" size="6"> m
+ <button id="b_obj">Test: object plaatsen</button>
+</div>
 <div class="klein">Om de laatste vier te proberen: teken in Archicad zelf een lijn of een ander element, selecteer het, en kies
  "Selectie op de testlaag zetten". Het krijgt dan de laag PDOK_test en het ID TEST-1, TEST-2...</div>
 <div id="uit">De uitvoer van de tests komt hier.</div>
@@ -235,6 +239,23 @@ knop.b_vlak = async () => {
   const e = (p.elements || [])[0] || {};
   schrijf(e.elementId ? 'Vlak met gat getekend op laag PDOK_test rond (' + x + ', ' + (y + 20) + '), ID TEST-VLAK' + (vulling ? ', met effen vulling' : ', zonder effen vulling (niet gevonden)') + '.'
                       : 'Vlak mislukt: ' + JSON.stringify(e));
+};
+knop.b_obj = async () => {
+  const laag = await testlaagIndex(); if (laag === null) return;
+  const [x, y] = xy(); const z = parseFloat(document.getElementById('z0').value) || 0;
+  const naam = (document.getElementById('objnaam').value || '').trim() || 'Boom stedenbouw 02';
+  const vraag = {objectsData: [{libraryPartName: naam, coordinates: {x: x + 30, y: y, z: z}, dimensions: {x: 6, y: 6, z: 10},
+                                floorIndex: 0, layerIndex: laag, id: 'TEST-OBJ'}]};
+  let p = await stap('Object', 'CreateObjects', vraag); if (!p) return;
+  let e = (p.elements || [])[0] || {}; let plan = false;
+  if (!e.elementId) {                       // lukt het niet in het huidige venster, probeer het dan in de plattegrond
+    schrijf('Eerste poging mislukt: ' + JSON.stringify(e.error || e) + ' - nu in de plattegrond.');
+    if (!(await naarPlattegrond())) return;
+    p = await stap('Object', 'CreateObjects', vraag); if (!p) return;
+    e = (p.elements || [])[0] || {}; plan = true;
+  }
+  schrijf(e.elementId ? 'Object "' + naam + '" geplaatst op (' + (x + 30) + ', ' + y + ') op hoogte ' + z + ' m, ID TEST-OBJ' + (plan ? ' (na wisselen naar de plattegrond)' : ' (in het huidige venster)') + '.'
+                      : 'Object mislukt: ' + JSON.stringify(e.error || e));
 };
 knop.b_basis = async () => {
   schrijf('--- basistests ---');

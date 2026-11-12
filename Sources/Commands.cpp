@@ -1,6 +1,9 @@
 #include "Commands.hpp"
 
+#include "Location.hpp"
+
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 
 #include "AddOnVersion.hpp"
@@ -849,6 +852,201 @@ protected:
     }
 };
 
+
+// ================================================================== groep 3 (deel 1): objecten (bibliotheekobjecten, bijvoorbeeld bomen)
+
+// De hoogte (het niveau) van een verdieping, om een absolute hoogte om te rekenen naar een afstand tot die verdieping.
+bool StoryLevel (short floorIndex, double& level)
+{
+    API_StoryInfo storyInfo = {};
+    if (ACAPI_ProjectSetting_GetStorySettings (&storyInfo) != NoError) {
+        return false;
+    }
+    bool found = false;
+    if (storyInfo.data != nullptr) {
+        const short numberOfStories = storyInfo.lastStory - storyInfo.firstStory + 1;
+        for (short i = 0; i < numberOfStories; ++i) {
+            if ((*storyInfo.data)[i].index == floorIndex) {
+                level = (*storyInfo.data)[i].level;
+                found = true;
+                break;
+            }
+        }
+    }
+    BMKillHandle (reinterpret_cast<GSHandle*> (&storyInfo.data));
+    return found;
+}
+
+bool EqualsIgnoreCase (const char* a, const char* b)
+{
+    while (*a != '\0' && *b != '\0') {
+        if (std::tolower (static_cast<unsigned char> (*a)) != std::tolower (static_cast<unsigned char> (*b))) {
+            return false;
+        }
+        ++a;
+        ++b;
+    }
+    return *a == *b;
+}
+
+// Een getalparameter (bijvoorbeeld A, B of ZZYZX) van een bibliotheekobject zetten.
+bool SetNumericParameter (API_AddParType** params, const char* name, double value)
+{
+    if (params == nullptr) {
+        return false;
+    }
+    const GSSize count = BMGetHandleSize (reinterpret_cast<GSHandle> (params)) / sizeof (API_AddParType);
+    for (GSIndex i = 0; i < count; ++i) {
+        API_AddParType& parameter = (*params)[i];
+        if (parameter.typeMod != API_ParArray && EqualsIgnoreCase (parameter.name, name)) {
+            parameter.value.real = value;
+            return true;
+        }
+    }
+    return false;
+}
+
+// De eigen afmeting (A en B) van een bibliotheekobject. Blijft 1 als het object die niet heeft.
+GSErrCode LibraryPartOwnSize (Int32 libInd, double& a, double& b)
+{
+    double libraryPartA = 0.0;
+    double libraryPartB = 0.0;
+    Int32 addParNum = 0;
+    API_AddParType** addPars = nullptr;
+    const GSErrCode err = ACAPI_LibraryPart_GetParams (libInd, &libraryPartA, &libraryPartB, &addParNum, &addPars);
+    if (addPars != nullptr) {
+        ACAPI_DisposeAddParHdl (&addPars);
+    }
+    if (err != NoError) {
+        return err;
+    }
+    if (libraryPartA > 1e-6) {
+        a = libraryPartA;
+    }
+    if (libraryPartB > 1e-6) {
+        b = libraryPartB;
+    }
+    return NoError;
+}
+
+// De standaardparameters van het bibliotheekobject in het geheugenblok van het element zetten. Naar Tapirs LoadLibraryPartDefaults.
+GSErrCode LoadLibraryPartDefaults (API_Element& element, API_ElementMemo& memo)
+{
+    double a = 0.0;
+    double b = 0.0;
+    Int32 addParNum = 0;
+    API_AddParType** addPars = nullptr;
+    const GSErrCode err = ACAPI_LibraryPart_GetParams (element.object.libInd, &a, &b, &addParNum, &addPars);
+    if (err != NoError) {
+        if (addPars != nullptr) {
+            ACAPI_DisposeAddParHdl (&addPars);
+        }
+        return err;
+    }
+    if (memo.params != nullptr) {
+        ACAPI_DisposeAddParHdl (&memo.params);
+    }
+    memo.params = addPars;
+
+    // xRatio en yRatio zijn de afmeting zelf met useXYFixSize aan, anders de afmeting gedeeld door de eigen A en B.
+    if (a > 1e-6) {
+        element.object.xRatio = element.object.useXYFixSize ? a : 1.0;
+        SetNumericParameter (memo.params, "A", a);
+    }
+    if (b > 1e-6) {
+        element.object.yRatio = element.object.useXYFixSize ? b : 1.0;
+        SetNumericParameter (memo.params, "B", b);
+    }
+    return NoError;
+}
+
+// ---- CreateObjects {objectsData: [{libraryPartName, coordinates: {x, y, z}, dimensions?: {x, y, z}, floorIndex?, layerIndex?,
+//      angle?, id?}]}   z is een absolute hoogte; de add-on rekent die om naar de verdieping (floorIndex, standaard 0).
+class CreateObjectsCommand final : public Create2DCommand
+{
+public:
+    virtual GS::String GetName () const override { return "CreateObjects"; }
+
+protected:
+    virtual const char*     ArrayField () const override { return "objectsData"; }
+    virtual const char*     UndoText () const override { return "PDOK Import: objecten plaatsen"; }
+    virtual API_ElemTypeID  TypeId () const override { return API_ObjectID; }
+    virtual GS::UniString   Description () const override { return "Het object"; }
+
+    virtual GS::Optional<GS::ObjectState> Fill (API_Element& element, API_ElementMemo& memo, const GS::ObjectState& item) const override
+    {
+        // 1. het bibliotheekobject op naam zoeken
+        GS::UniString name;
+        if (!item.Get ("libraryPartName", name) || name.IsEmpty ()) {
+            return ErrorResponse (APIERR_BADPARS, "libraryPartName ontbreekt.");
+        }
+        API_LibPart libPart = {};
+        const USize maxNameLength = sizeof (libPart.docu_UName) / sizeof (libPart.docu_UName[0]) - 1;
+        GS::ucscpy (libPart.docu_UName, name.ToUStr (0, GS::Min (name.GetLength (), maxNameLength)).Get ());
+        GSErrCode err = ACAPI_LibraryPart_Search (&libPart, false, true);
+        delete libPart.location;
+        if (err != NoError) {
+            return ErrorResponse (err, GS::UniString ("Het bibliotheekobject '") + name + "' is niet gevonden in de geladen bibliotheken.");
+        }
+        element.object.libInd = libPart.index;
+
+        // 2. de standaardparameters van dat object
+        err = LoadLibraryPartDefaults (element, memo);
+        if (err != NoError) {
+            return ErrorResponse (err, "De standaardparameters van het bibliotheekobject konden niet worden gelezen.");
+        }
+
+        // 3. positie: x en y, en een absolute hoogte die wordt omgerekend naar de verdieping
+        GS::ObjectState coordinates;
+        if (!item.Get ("coordinates", coordinates)) {
+            return ErrorResponse (APIERR_BADPARS, "coordinates ontbreekt.");
+        }
+        double x = 0.0, y = 0.0, z = 0.0;
+        coordinates.Get ("x", x);
+        coordinates.Get ("y", y);
+        coordinates.Get ("z", z);
+
+        short floorIndex = 0;
+        item.Get ("floorIndex", floorIndex);
+        double storyLevel = 0.0;
+        StoryLevel (floorIndex, storyLevel);       // onbekende verdieping: niveau 0
+        element.header.floorInd = floorIndex;
+        element.object.pos.x = x;
+        element.object.pos.y = y;
+        element.object.level = z - storyLevel;
+
+        // 4. afmetingen (A, B en ZZYZX)
+        GS::ObjectState dimensions;
+        if (item.Get ("dimensions", dimensions)) {
+            double dx = 0.0, dy = 0.0, dz = 0.0;
+            dimensions.Get ("x", dx);
+            dimensions.Get ("y", dy);
+            dimensions.Get ("z", dz);
+
+            double ownA = 1.0;
+            double ownB = 1.0;
+            if (!element.object.useXYFixSize) {
+                err = LibraryPartOwnSize (element.object.libInd, ownA, ownB);
+                if (err != NoError) {
+                    return ErrorResponse (err, "De eigen afmeting (A en B) van het bibliotheekobject kon niet worden gelezen.");
+                }
+            }
+            element.object.xRatio = dx / ownA;
+            element.object.yRatio = dy / ownB;
+            SetNumericParameter (memo.params, "A", dx);
+            SetNumericParameter (memo.params, "B", dy);
+            SetNumericParameter (memo.params, "ZZYZX", dz);
+        }
+
+        // 5. draaiing (in radialen)
+        double angle = 0.0;
+        if (item.Get ("angle", angle)) {
+            element.object.angle = angle;
+        }
+        return {};
+    }
+};
+
 // ---- GetSelectedElements -> {elements: [{elementId}]}
 class GetSelectedElementsCommand final : public CommandBase
 {
@@ -906,6 +1104,7 @@ GSErrCode RegisterAll ()
     err |= Register<GetSelectedElementsCommand> ();
     err |= Register<CreatePolylinesCommand> ();
     err |= Register<CreateHatchesCommand> ();
+    err |= Register<CreateObjectsCommand> ();
     return err;
 }
 
