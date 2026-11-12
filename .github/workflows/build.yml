@@ -1,0 +1,50 @@
+name: Bouw de add-on
+
+on:
+  push:
+  workflow_dispatch:
+
+env:
+  AC_VERSION: "29"
+  DEVKIT_RELEASE: "29.3100"
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - name: De bestanden ophalen
+        uses: actions/checkout@v4
+
+      - name: Python klaarzetten (nodig voor het compileren van de resources)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: De Archicad DevKit downloaden
+        shell: pwsh
+        run: |
+          $url = "https://github.com/GRAPHISOFT/archicad-api-devkit/releases/download/$env:DEVKIT_RELEASE/API.Development.Kit.WIN.$env:DEVKIT_RELEASE.zip"
+          python Tools/download_and_unzip.py $url "Build/DevKits/AC$env:AC_VERSION"
+          $support = Get-ChildItem "Build/DevKits/AC$env:AC_VERSION" -Recurse -Directory -Filter Support |
+              Where-Object { Test-Path (Join-Path $_.FullName "Inc") } | Select-Object -First 1
+          if (-not $support) { throw "De map Support met Inc werd niet gevonden in de DevKit." }
+          "DEVKIT_SUPPORT=$($support.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "DevKit Support: $($support.FullName)"
+
+      - name: Het project instellen (CMake)
+        shell: pwsh
+        run: |
+          cmake -B "Build/AC$env:AC_VERSION" -G "Visual Studio 17 2022" -A x64 -T v143 `
+            -DAC_VERSION="$env:AC_VERSION" -DAC_API_DEVKIT_DIR="$env:DEVKIT_SUPPORT" .
+
+      - name: De add-on bouwen
+        shell: pwsh
+        run: cmake --build "Build/AC$env:AC_VERSION" --config RelWithDebInfo
+
+      - name: Het .apx-bestand bewaren
+        uses: actions/upload-artifact@v4
+        with:
+          name: PDOKImport_AC29_Win
+          path: Build/AC29/RelWithDebInfo/*.apx
+          if-no-files-found: error
