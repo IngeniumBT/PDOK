@@ -1,5 +1,8 @@
 #include "Commands.hpp"
 
+#include <algorithm>
+#include <cmath>
+
 #include "AddOnVersion.hpp"
 #include "AddOnBuildCommit.hpp"
 
@@ -23,18 +26,21 @@ GS::ObjectState GuidObject (const API_Guid& guid)
     return GS::ObjectState ("guid", APIGuidToString (guid));
 }
 
+// Leest de guid uit een object {"guid": "..."}.
+API_Guid GuidOfObject (const GS::ObjectState& wrapper)
+{
+    GS::String guid;
+    if (!wrapper.Get ("guid", guid)) {
+        return APINULLGuid;
+    }
+    return APIGuidFromString (guid.ToCStr ());
+}
+
 // Leest {"guid": "..."} uit het veld `field` van `item`.
 API_Guid GuidOfField (const GS::ObjectState& item, const char* field)
 {
     const GS::ObjectState* wrapper = item.Get (field);
-    if (wrapper == nullptr) {
-        return APINULLGuid;
-    }
-    GS::String guid;
-    if (!wrapper->Get ("guid", guid)) {
-        return APINULLGuid;
-    }
-    return APIGuidFromString (guid.ToCStr ());
+    return wrapper == nullptr ? APINULLGuid : GuidOfObject (*wrapper);
 }
 
 Int32 IndexValue (const API_AttributeIndex& index)
@@ -239,7 +245,13 @@ public:
         if (err != NoError) {
             return ErrorResponse (err, "Het actieve venster kon niet worden gelezen.");
         }
-        return GS::ObjectState ("currentWindowType", GS::UniString (WindowTypeName (windowInfo.typeID)));
+        GS::ObjectState response ("currentWindowType", GS::UniString (WindowTypeName (windowInfo.typeID)));
+        // De database waarin de opdrachten werken is iets anders dan het venster dat je ziet.
+        API_DatabaseInfo databaseInfo = {};
+        if (ACAPI_Database_GetCurrentDatabase (&databaseInfo) == NoError) {
+            response.Add ("currentDatabaseType", GS::UniString (WindowTypeName (databaseInfo.typeID)));
+        }
+        return response;
     }
 };
 
@@ -266,8 +278,9 @@ public:
         }
 
         // GetDatabaseInfo vult de database in die bij het venster hoort; aanmaken van elementen gebeurt in de huidige database.
-        if (ACAPI_Window_GetDatabaseInfo (&windowInfo) == NoError) {
-            ACAPI_Database_ChangeCurrentDatabase (&windowInfo);
+        GSErrCode databaseErr = ACAPI_Window_GetDatabaseInfo (&windowInfo);
+        if (databaseErr == NoError) {
+            databaseErr = ACAPI_Database_ChangeCurrentDatabase (&windowInfo);
         }
         GSErrCode err = ACAPI_Window_ChangeWindow (&windowInfo);
         if (err != NoError) {
@@ -293,7 +306,16 @@ public:
                 return ErrorResponse (err, "De verdieping kon niet worden gewisseld.");
             }
         }
-        return GS::ObjectState ("success", true);
+        GS::ObjectState response ("success", true);
+        response.Add ("databaseSwitched", databaseErr == NoError);
+        if (databaseErr != NoError) {
+            response.Add ("databaseError", static_cast<Int32> (databaseErr));
+        }
+        API_DatabaseInfo databaseInfo = {};
+        if (ACAPI_Database_GetCurrentDatabase (&databaseInfo) == NoError) {
+            response.Add ("currentDatabaseType", GS::UniString (WindowTypeName (databaseInfo.typeID)));
+        }
+        return response;
     }
 };
 
@@ -503,6 +525,317 @@ public:
     }
 };
 
+
+// ================================================================== groep 2: 2D (polylijnen en vlakken)
+
+API_Coord Coordinate2D (const GS::ObjectState& os)
+{
+    API_Coord coordinate = {};
+    os.Get ("x", coordinate.x);
+    os.Get ("y", coordinate.y);
+    return coordinate;
+}
+
+bool SamePoint (const GS::ObjectState& a, const GS::ObjectState& b)
+{
+    const API_Coord p = Coordinate2D (a);
+    const API_Coord q = Coordinate2D (b);
+    return std::abs (p.x - q.x) < 1e-9 && std::abs (p.y - q.y) < 1e-9;
+}
+
+// Een vlak is een gesloten veelhoek: een herhaling van het eerste punt aan het eind wordt weggelaten.
+GS::Array<GS::ObjectState> OpenOutline (const GS::Array<GS::ObjectState>& coordinates)
+{
+    GS::Array<GS::ObjectState> outline = coordinates;
+    if (outline.GetSize () > 1 && SamePoint (outline.GetFirst (), outline.GetLast ())) {
+        outline.Pop ();
+    }
+    return outline;
+}
+
+// De coordinaten van een gat: {polygonOutline: [...]} (of de oudere sleutel polygonCoordinates).
+bool HoleCoordinates (const GS::ObjectState& hole, GS::Array<GS::ObjectState>& coordinates)
+{
+    if (!hole.Get ("polygonCoordinates", coordinates) && !hole.Get ("polygonOutline", coordinates)) {
+        return false;
+    }
+    if (!coordinates.IsEmpty () && SamePoint (coordinates.GetFirst (), coordinates.GetLast ())) {
+        coordinates.Pop ();
+    }
+    return true;
+}
+
+// Het geheugenblok van een polylijn (open, een deelveelhoek, geen bogen). Naar Tapirs AddPolyToMemo.
+void BuildPolylineMemo (const GS::Array<GS::ObjectState>& coordinates, API_Polygon& poly, API_ElementMemo& memo)
+{
+    poly.nCoords = static_cast<Int32> (coordinates.GetSize ());
+    poly.nSubPolys = 1;
+    poly.nArcs = 0;
+
+    memo.coords = reinterpret_cast<API_Coord**> (BMAllocateHandle ((poly.nCoords + 1) * sizeof (API_Coord), ALLOCATE_CLEAR, 0));
+    memo.pends = reinterpret_cast<Int32**> (BMAllocateHandle ((poly.nSubPolys + 1) * sizeof (Int32), ALLOCATE_CLEAR, 0));
+    memo.parcs = reinterpret_cast<API_PolyArc**> (BMAllocateHandle (poly.nArcs * sizeof (API_PolyArc), ALLOCATE_CLEAR, 0));
+
+    Int32 iCoord = 0;
+    for (const GS::ObjectState& c : coordinates) {
+        (*memo.coords)[++iCoord] = Coordinate2D (c);
+    }
+    (*memo.pends)[1] = iCoord;
+}
+
+// Het geheugenblok van een vlak met gaten, zonder bogen. Naar Tapirs BuildHatchPolygonMemo: elke contour (de buitenrand
+// en elk gat) krijgt een eigen sluitpunt dat het eerste punt herhaalt, en de punt-ID's beginnen per contour opnieuw bij 1.
+bool BuildHatchMemo (const GS::Array<GS::ObjectState>& outlineIn, const GS::Array<GS::ObjectState>& holes, API_Polygon& poly, API_ElementMemo& memo)
+{
+    const GS::Array<GS::ObjectState> outline = OpenOutline (outlineIn);
+
+    Int32 totalCoords = static_cast<Int32> (outline.GetSize ()) + 1;
+    GS::Array<GS::Array<GS::ObjectState>> holeList;
+    for (const GS::ObjectState& hole : holes) {
+        GS::Array<GS::ObjectState> holeCoordinates;
+        if (HoleCoordinates (hole, holeCoordinates) && holeCoordinates.GetSize () >= 3) {
+            totalCoords += static_cast<Int32> (holeCoordinates.GetSize ()) + 1;
+            holeList.Push (holeCoordinates);
+        }
+    }
+    const Int32 nSubPolys = 1 + static_cast<Int32> (holeList.GetSize ());
+
+    memo.coords = reinterpret_cast<API_Coord**> (BMAllocateHandle ((totalCoords + 1) * sizeof (API_Coord), ALLOCATE_CLEAR, 0));
+    memo.pends = reinterpret_cast<Int32**> (BMAllocateHandle ((nSubPolys + 1) * sizeof (Int32), ALLOCATE_CLEAR, 0));
+    memo.parcs = reinterpret_cast<API_PolyArc**> (BMAllocateHandle (0 * sizeof (API_PolyArc), ALLOCATE_CLEAR, 0));
+    memo.vertexIDs = reinterpret_cast<UInt32**> (BMAllocateHandle ((totalCoords + 1) * sizeof (UInt32), ALLOCATE_CLEAR, 0));
+    if (memo.coords == nullptr || memo.pends == nullptr || memo.vertexIDs == nullptr) {
+        return false;
+    }
+
+    Int32 maxContourUnique = static_cast<Int32> (outline.GetSize ());
+    for (const GS::Array<GS::ObjectState>& holeCoordinates : holeList) {
+        maxContourUnique = std::max (maxContourUnique, static_cast<Int32> (holeCoordinates.GetSize ()));
+    }
+    (*memo.coords)[0] = { 0.0, 0.0 };
+    (*memo.vertexIDs)[0] = static_cast<UInt32> (maxContourUnique);
+    (*memo.pends)[0] = 0;
+
+    Int32 iCoord = 0;
+    Int32 subPolyIndex = 1;
+    auto writeContour = [&] (const GS::Array<GS::ObjectState>& contour) {
+        const Int32 firstIndex = iCoord + 1;
+        for (UIndex i = 0; i < contour.GetSize (); ++i) {
+            ++iCoord;
+            (*memo.coords)[iCoord] = Coordinate2D (contour[i]);
+            (*memo.vertexIDs)[iCoord] = static_cast<UInt32> (i + 1);       // per contour opnieuw vanaf 1
+        }
+        ++iCoord;
+        (*memo.coords)[iCoord] = (*memo.coords)[firstIndex];                // het sluitpunt
+        (*memo.vertexIDs)[iCoord] = (*memo.vertexIDs)[firstIndex];
+        (*memo.pends)[subPolyIndex++] = iCoord;
+    };
+    writeContour (outline);
+    for (const GS::Array<GS::ObjectState>& holeCoordinates : holeList) {
+        writeContour (holeCoordinates);
+    }
+
+    poly.nCoords = totalCoords;
+    poly.nSubPolys = nSubPolys;
+    poly.nArcs = 0;
+    return true;
+}
+
+// Een kleur {red, green, blue} met waarden van 0 tot 1.
+bool ReadColor (const GS::ObjectState& parameters, const char* field, API_RGBColor& color)
+{
+    GS::ObjectState colorObject;
+    if (!parameters.Get (field, colorObject)) {
+        return false;
+    }
+    color = {};
+    colorObject.Get ("red", color.f_red);
+    colorObject.Get ("green", color.f_green);
+    colorObject.Get ("blue", color.f_blue);
+    return true;
+}
+
+bool FillIndexOfGuid (const API_Guid& guid, API_AttributeIndex& index)
+{
+    API_Attribute attribute = {};
+    attribute.header.typeID = API_FilltypeID;
+    attribute.header.guid = guid;
+    if (ACAPI_Attribute_Get (&attribute) != NoError) {
+        return false;
+    }
+    index = attribute.header.index;
+    return true;
+}
+
+// Gemeenschappelijk deel van CreatePolylines en CreateHatches: per item de standaardwaarden ophalen, de velden invullen,
+// het element aanmaken en het geheugenblok opruimen. Alles in een ongedaan-te-maken blok.
+class Create2DCommand : public CommandBase
+{
+public:
+    virtual GS::ObjectState Execute (const GS::ObjectState& parameters, GS::ProcessControl&) const override final
+    {
+        GS::Array<GS::ObjectState> items;
+        parameters.Get (ArrayField (), items);
+
+        GS::ObjectState response;
+        const auto& results = response.AddList<GS::ObjectState> ("elements");
+
+        const GSErrCode undoErr = ACAPI_CallUndoableCommand (UndoText (), [&] () -> GSErrCode {
+            for (const GS::ObjectState& item : items) {
+                results (CreateOne (item));
+            }
+            return NoError;
+        });
+        if (undoErr != NoError) {
+            return ErrorResponse (undoErr, "De elementen konden niet worden aangemaakt.");
+        }
+        return response;
+    }
+
+protected:
+    virtual const char*         ArrayField () const = 0;
+    virtual const char*         UndoText () const = 0;
+    virtual API_ElemTypeID      TypeId () const = 0;
+    virtual GS::UniString       Description () const = 0;
+    // Vult de velden en het geheugenblok. Geeft een foutantwoord, of niets als alles goed ging.
+    virtual GS::Optional<GS::ObjectState> Fill (API_Element& element, API_ElementMemo& memo, const GS::ObjectState& item) const = 0;
+
+private:
+    GS::ObjectState CreateOne (const GS::ObjectState& item) const
+    {
+        API_Element element = {};
+        API_ElementMemo memo = {};
+        element.header.type = TypeId ();
+        GSErrCode err = ACAPI_Element_GetDefaults (&element, &memo);
+        if (err != NoError) {
+            ACAPI_DisposeElemMemoHdls (&memo);
+            return ErrorResponse (err, GS::UniString ("De standaardwaarden van ") + Description () + " konden niet worden gelezen.");
+        }
+
+        // De velden die elk element deelt.
+        item.Get ("floorInd", element.header.floorInd);
+        Int32 layerIndex = 0;
+        if (item.Get ("layerIndex", layerIndex) && layerIndex > 0) {
+            element.header.layer = ACAPI_CreateAttributeIndex (layerIndex);
+        }
+
+        const GS::Optional<GS::ObjectState> fillError = Fill (element, memo, item);
+        if (fillError.HasValue ()) {
+            ACAPI_DisposeElemMemoHdls (&memo);
+            return *fillError;
+        }
+
+        err = ACAPI_Element_Create (&element, &memo);
+        ACAPI_DisposeElemMemoHdls (&memo);
+        if (err != NoError) {
+            return ErrorResponse (err, GS::UniString (Description ()) + " kon niet worden aangemaakt.");
+        }
+
+        GS::UniString id;
+        if (item.Get ("id", id) && !id.IsEmpty ()) {
+            err = ChangeElementId (element.header.guid, id);
+            if (err != NoError) {
+                GS::Array<API_Guid> unfinished;
+                unfinished.Push (element.header.guid);
+                ACAPI_Element_Delete (unfinished);
+                return ErrorResponse (err, GS::UniString ("Het ID van ") + Description () + " kon niet worden gezet; het element is weer verwijderd.");
+            }
+        }
+        return ElementIdObject (element.header.guid);
+    }
+};
+
+// ---- CreatePolylines {polylinesData: [{floorInd, layerIndex, coordinates: [{x, y}], linePenIndex?, id?}]}
+class CreatePolylinesCommand final : public Create2DCommand
+{
+public:
+    virtual GS::String GetName () const override { return "CreatePolylines"; }
+
+protected:
+    virtual const char*     ArrayField () const override { return "polylinesData"; }
+    virtual const char*     UndoText () const override { return "PDOK Import: polylijnen maken"; }
+    virtual API_ElemTypeID  TypeId () const override { return API_PolyLineID; }
+    virtual GS::UniString   Description () const override { return "De polylijn"; }
+
+    virtual GS::Optional<GS::ObjectState> Fill (API_Element& element, API_ElementMemo& memo, const GS::ObjectState& item) const override
+    {
+        short linePenIndex = 0;
+        if (item.Get ("linePenIndex", linePenIndex) && linePenIndex > 0) {
+            element.polyLine.linePen.penIndex = linePenIndex;
+            element.polyLine.linePen.colorOverridePenIndex = 0;
+        }
+
+        GS::Array<GS::ObjectState> coordinates;
+        item.Get ("coordinates", coordinates);
+        if (coordinates.GetSize () < 2) {
+            return ErrorResponse (APIERR_BADPARS, "Een polylijn heeft minstens 2 punten nodig.");
+        }
+        BuildPolylineMemo (coordinates, element.polyLine.poly, memo);
+        return {};
+    }
+};
+
+// ---- CreateHatches {hatchesData: [{floorInd, layerIndex, coordinates, holes: [{polygonOutline}], contourPenIndex?,
+//      fillPenIndex?, foregroundColor?: {red, green, blue}, fillId?: {guid}, id?}]}
+class CreateHatchesCommand final : public Create2DCommand
+{
+public:
+    virtual GS::String GetName () const override { return "CreateHatches"; }
+
+protected:
+    virtual const char*     ArrayField () const override { return "hatchesData"; }
+    virtual const char*     UndoText () const override { return "PDOK Import: vlakken maken"; }
+    virtual API_ElemTypeID  TypeId () const override { return API_HatchID; }
+    virtual GS::UniString   Description () const override { return "Het vlak"; }
+
+    virtual GS::Optional<GS::ObjectState> Fill (API_Element& element, API_ElementMemo& memo, const GS::ObjectState& item) const override
+    {
+        GS::Array<GS::ObjectState> coordinates;
+        GS::Array<GS::ObjectState> holes;
+        item.Get ("coordinates", coordinates);
+        item.Get ("holes", holes);
+        if (OpenOutline (coordinates).GetSize () < 3) {
+            return ErrorResponse (APIERR_BADPARS, "De buitenrand van een vlak heeft minstens 3 punten nodig.");
+        }
+        for (const GS::ObjectState& hole : holes) {
+            GS::Array<GS::ObjectState> holeCoordinates;
+            if (!HoleCoordinates (hole, holeCoordinates) || holeCoordinates.GetSize () < 3) {
+                return ErrorResponse (APIERR_BADPARS, "Elk gat heeft een polygonOutline met minstens 3 punten nodig.");
+            }
+        }
+        if (!BuildHatchMemo (coordinates, holes, element.hatch.poly, memo)) {
+            return ErrorResponse (APIERR_MEMFULL, "Het geheugen voor de omtrek van het vlak kon niet worden gereserveerd.");
+        }
+
+        short contourPenIndex = 0;
+        if (item.Get ("contourPenIndex", contourPenIndex)) {
+            element.hatch.contPen.penIndex = contourPenIndex;
+            element.hatch.contPen.colorOverridePenIndex = 0;
+        }
+        short fillPenIndex = 0;
+        if (item.Get ("fillPenIndex", fillPenIndex)) {
+            element.hatch.fillPen.penIndex = fillPenIndex;
+            element.hatch.fillPen.colorOverridePenIndex = 0;
+            element.hatch.hatchFlags &= ~APIHatch_HasFgRGBColor;
+        }
+        // Een opgegeven kleur zet de kleur van de vulling en wint van de pen.
+        if (ReadColor (item, "foregroundColor", element.hatch.foregroundRGB)) {
+            element.hatch.hatchFlags |= APIHatch_HasFgRGBColor;
+        }
+        // Een opgegeven vulling (attribuut) zet ook het soort vlak op 'vulling'.
+        const GS::ObjectState* fillId = item.Get ("fillId");
+        if (fillId != nullptr) {
+            API_AttributeIndex fillIndex;
+            if (!FillIndexOfGuid (GuidOfObject (*fillId), fillIndex)) {
+                return ErrorResponse (APIERR_BADID, "De vulling (fillId) bestaat niet in dit project.");
+            }
+            element.hatch.fillInd = fillIndex;
+            element.hatch.hatchType = API_FillHatch;
+        }
+        return {};
+    }
+};
+
 // ---- GetSelectedElements -> {elements: [{elementId}]}
 class GetSelectedElementsCommand final : public CommandBase
 {
@@ -558,6 +891,8 @@ GSErrCode RegisterAll ()
     err |= Register<SetDetailsOfElementsCommand> ();
     err |= Register<DeleteElementsCommand> ();
     err |= Register<GetSelectedElementsCommand> ();
+    err |= Register<CreatePolylinesCommand> ();
+    err |= Register<CreateHatchesCommand> ();
     return err;
 }
 

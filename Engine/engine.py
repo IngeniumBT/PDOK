@@ -26,6 +26,21 @@ NAMESPACE = "PDOKImport"
 TIJDSLIMIET = 900
 
 
+def post_archicad(inhoud):
+    verzoek = urllib.request.Request(
+        f"http://127.0.0.1:{ARCHICAD['port']}", data=json.dumps(inhoud).encode("utf-8"),
+        headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(verzoek, timeout=TIJDSLIMIET) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def officieel(commando, parameters=None):
+    """Roept een commando van Archicads eigen JSON-interface aan (bijvoorbeeld API.GetAttributesByType)."""
+    if not ARCHICAD["port"]:
+        raise RuntimeError("De add-on gaf de poort van Archicad niet door (--archicad-port).")
+    return post_archicad({"command": commando, "parameters": parameters or {}})
+
+
 def ac(naam, parameters=None, namespace=NAMESPACE):
     """Roept een opdracht van de add-on aan via de JSON-interface van Archicad. Geeft het ruwe antwoord."""
     if not ARCHICAD["port"]:
@@ -80,6 +95,11 @@ button{padding:5px 10px;margin:2px 6px 2px 0}
  <button id="b_toon">Elementen op de testlaag tonen</button>
  <button id="b_wis">Elementen op de testlaag verwijderen</button>
 </div>
+<div><b>Groep 2 (2D):</b> tekent op de laag PDOK_test, rond RD
+ x <input id="x0" value="260250" size="8"> y <input id="y0" value="482250" size="8">
+ <button id="b_lijn">Test: polylijn tekenen</button>
+ <button id="b_vlak">Test: vlak met gat tekenen</button>
+</div>
 <div class="klein">Om de laatste vier te proberen: teken in Archicad zelf een lijn of een ander element, selecteer het, en kies
  "Selectie op de testlaag zetten". Het krijgt dan de laag PDOK_test en het ID TEST-1, TEST-2...</div>
 <div id="uit">De uitvoer van de tests komt hier.</div>
@@ -125,9 +145,9 @@ const knop = {
     const p = await stap('Testlaag', 'EnsureLayer', {name: 'PDOK_test', folder: ['PDOK Import']});
     if (p) schrijf('Laag PDOK_test: index ' + p.index + (p.created ? ' (nieuw gemaakt, in de map PDOK Import)' : ' (bestond al)'));
   },
-  b_venster: async () => { const p = await stap('Venster', 'GetCurrentWindowType'); if (p) schrijf('Actief venster: ' + p.currentWindowType); },
-  b_plan: async () => { const p = await stap('Naar plattegrond', 'ChangeWindow', {windowType: 'FloorPlan', storyIndex: 0}); if (p) schrijf('Gewisseld naar de plattegrond (verdieping 0).'); },
-  b_3d: async () => { const p = await stap('Naar 3D', 'ChangeWindow', {windowType: '3DModel'}); if (p) schrijf('Gewisseld naar het 3D-venster.'); },
+  b_venster: async () => { const p = await stap('Venster', 'GetCurrentWindowType'); if (p) schrijf('Actief venster: ' + p.currentWindowType + ' | huidige database: ' + (p.currentDatabaseType || '?')); },
+  b_plan: async () => { const p = await stap('Naar plattegrond', 'ChangeWindow', {windowType: 'FloorPlan', storyIndex: 0}); if (p) schrijf('Gewisseld naar de plattegrond (verdieping 0). Database gewisseld: ' + p.databaseSwitched + (p.databaseError ? ' (foutcode ' + p.databaseError + ')' : '') + ' | huidige database: ' + (p.currentDatabaseType || '?')); },
+  b_3d: async () => { const p = await stap('Naar 3D', 'ChangeWindow', {windowType: '3DModel'}); if (p) schrijf('Gewisseld naar het 3D-venster. Database gewisseld: ' + p.databaseSwitched + (p.databaseError ? ' (foutcode ' + p.databaseError + ')' : '') + ' | huidige database: ' + (p.currentDatabaseType || '?')); },
   b_tel: async () => {
     const regels = [];
     for (const t of TYPEN) {
@@ -171,6 +191,49 @@ const knop = {
     const p = await stap('Verwijderen', 'DeleteElements', {elements: l.detailsOfElements.map(e => ({elementId: e.elementId}))});
     if (p) schrijf('Verwijderd: ' + p.deleted + ' (niet gevonden: ' + p.notFound + '). Controleer in Archicad dat ze weg zijn en dat Ongedaan maken ze terugbrengt.');
   },
+};
+async function officieel(command, params) {
+  const r = await fetch('/ac', {method: 'POST', body: JSON.stringify({official: command, params: params || {}})});
+  return await r.json();
+}
+async function zoekVulling() {
+  const l = await officieel('API.GetAttributesByType', {attributeType: 'Fill'});
+  const ids = (l.result && l.result.attributeIds) || [];
+  if (!ids.length) return null;
+  const d = await officieel('API.GetFillAttributes', {attributeIds: ids});
+  const lijst = ((d.result && d.result.attributes) || []).map(a => a.fillAttribute || a);
+  for (const fa of lijst) { if (String(fa.subType || '').toLowerCase().startsWith('solid')) return fa.attributeId; }
+  return null;
+}
+function xy() { return [parseFloat(document.getElementById('x0').value) || 0, parseFloat(document.getElementById('y0').value) || 0]; }
+async function naarPlattegrond() {
+  const p = await stap('Naar plattegrond', 'ChangeWindow', {windowType: 'FloorPlan', storyIndex: 0});
+  if (p && p.databaseSwitched === false) schrijf('LET OP: de database werd niet gewisseld (foutcode ' + p.databaseError + ').');
+  return p;
+}
+knop.b_lijn = async () => {
+  const laag = await testlaagIndex(); if (laag === null) return;
+  if (!(await naarPlattegrond())) return;
+  const [x, y] = xy();
+  const p = await stap('Polylijn', 'CreatePolylines', {polylinesData: [{floorInd: 0, layerIndex: laag, linePenIndex: 3, id: 'TEST-LIJN',
+      coordinates: [{x: x, y: y}, {x: x + 20, y: y}, {x: x + 20, y: y + 10}], arcs: []}]});
+  if (!p) return;
+  const e = (p.elements || [])[0] || {};
+  schrijf(e.elementId ? 'Polylijn getekend op laag PDOK_test rond (' + x + ', ' + y + '), ID TEST-LIJN.' : 'Polylijn mislukt: ' + JSON.stringify(e));
+};
+knop.b_vlak = async () => {
+  const laag = await testlaagIndex(); if (laag === null) return;
+  if (!(await naarPlattegrond())) return;
+  const [x, y] = xy(); const vulling = await zoekVulling();
+  const vlak = {floorInd: 0, layerIndex: laag, contourPenIndex: 1, id: 'TEST-VLAK',
+    foregroundColor: {red: 0.9, green: 0.2, blue: 0.2},
+    coordinates: [{x: x, y: y + 20}, {x: x + 20, y: y + 20}, {x: x + 20, y: y + 40}, {x: x, y: y + 40}], arcs: [],
+    holes: [{polygonOutline: [{x: x + 7, y: y + 27}, {x: x + 13, y: y + 27}, {x: x + 13, y: y + 33}, {x: x + 7, y: y + 33}]}]};
+  if (vulling) vlak.fillId = vulling;
+  const p = await stap('Vlak', 'CreateHatches', {hatchesData: [vlak]}); if (!p) return;
+  const e = (p.elements || [])[0] || {};
+  schrijf(e.elementId ? 'Vlak met gat getekend op laag PDOK_test rond (' + x + ', ' + (y + 20) + '), ID TEST-VLAK' + (vulling ? ', met effen vulling' : ', zonder effen vulling (niet gevonden)') + '.'
+                      : 'Vlak mislukt: ' + JSON.stringify(e));
 };
 knop.b_basis = async () => {
   schrijf('--- basistests ---');
@@ -248,7 +311,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             vraag = json.loads(body.decode("utf-8") or "{}")
-            antwoord = ac(vraag["command"], vraag.get("params") or {})
+            if vraag.get("official"):
+                antwoord = officieel(vraag["official"], vraag.get("params") or {})
+            else:
+                antwoord = ac(vraag["command"], vraag.get("params") or {})
         except Exception as fout:  # noqa: BLE001
             antwoord = {"succeeded": False, "error": {"message": type(fout).__name__ + ": " + str(fout)}}
         self._stuur(200, json.dumps(antwoord), "application/json")
