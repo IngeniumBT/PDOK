@@ -81,11 +81,15 @@ static void ShowAbout ()
 static GSErrCode MenuCommandHandler (const API_MenuParams* menuParams)
 {
     switch (menuParams->menuItemRef.menuResID) {
-        case ID_ADDON_MENU:
+        case ID_ADDON_MENU_FOR_OPEN:
             switch (menuParams->menuItemRef.itemIndex) {
                 case ID_ADDON_MENU_OPEN:
                     OpenImportPalette ();
                     break;
+            }
+            break;
+        case ID_ADDON_MENU:
+            switch (menuParams->menuItemRef.itemIndex) {
                 case ID_ADDON_MENU_ABOUT:
                     ShowAbout ();
                     break;
@@ -109,19 +113,25 @@ API_AddonType CheckEnvironment (API_EnvirParams* envir)
 
 GSErrCode RegisterInterface (void)
 {
+    GSErrCode err = NoError;
 #ifdef ServerMainVers_2700
-    return ACAPI_MenuItem_RegisterMenu (ID_ADDON_MENU, 0, MenuCode_UserDef, MenuFlag_Default);
+    err |= ACAPI_MenuItem_RegisterMenu (ID_ADDON_MENU_FOR_OPEN, 0, MenuCode_UserDef, MenuFlag_Default);
+    err |= ACAPI_MenuItem_RegisterMenu (ID_ADDON_MENU, 0, MenuCode_UserDef, MenuFlag_SeparatorBefore);
 #else
-    return ACAPI_Register_Menu (ID_ADDON_MENU, 0, MenuCode_UserDef, MenuFlag_Default);
+    err |= ACAPI_Register_Menu (ID_ADDON_MENU_FOR_OPEN, 0, MenuCode_UserDef, MenuFlag_Default);
+    err |= ACAPI_Register_Menu (ID_ADDON_MENU, 0, MenuCode_UserDef, MenuFlag_SeparatorBefore);
 #endif
+    return err;
 }
 
 GSErrCode Initialize (void)
 {
     GSErrCode err = NoError;
 #ifdef ServerMainVers_2700
+    err |= ACAPI_MenuItem_InstallMenuHandler (ID_ADDON_MENU_FOR_OPEN, MenuCommandHandler);
     err |= ACAPI_MenuItem_InstallMenuHandler (ID_ADDON_MENU, MenuCommandHandler);
 #else
+    err |= ACAPI_Install_MenuHandler (ID_ADDON_MENU_FOR_OPEN, MenuCommandHandler);
     err |= ACAPI_Install_MenuHandler (ID_ADDON_MENU, MenuCommandHandler);
 #endif
     err |= ImportPalette::RegisterPaletteControlCallBack ();
