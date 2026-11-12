@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <map>
+#include <utility>
 
 #include "AddOnVersion.hpp"
 #include "AddOnBuildCommit.hpp"
@@ -710,6 +712,10 @@ protected:
     virtual GS::UniString       Description () const = 0;
     // Vult de velden en het geheugenblok. Geeft een foutantwoord, of niets als alles goed ging.
     virtual GS::Optional<GS::ObjectState> Fill (API_Element& element, API_ElementMemo& memo, const GS::ObjectState& item) const = 0;
+    // Een morph krijgt zijn geheugenblok niet uit de standaardwaarden (anders zou het oude lichaam lekken).
+    virtual bool WantsDefaultMemo () const { return true; }
+    // Een stap na het aanmaken, nog met het geheugenblok (bijvoorbeeld de oppervlakken per vlak van een morph).
+    virtual GS::Optional<GS::ObjectState> AfterCreate (API_Element&, API_ElementMemo&, const GS::ObjectState&) const { return {}; }
 
 private:
     GS::ObjectState CreateOne (const GS::ObjectState& item) const
@@ -717,7 +723,7 @@ private:
         API_Element element = {};
         API_ElementMemo memo = {};
         element.header.type = TypeId ();
-        GSErrCode err = ACAPI_Element_GetDefaults (&element, &memo);
+        GSErrCode err = ACAPI_Element_GetDefaults (&element, WantsDefaultMemo () ? &memo : nullptr);
         if (err != NoError) {
             ACAPI_DisposeElemMemoHdls (&memo);
             return ErrorResponse (err, GS::UniString ("De standaardwaarden van ") + Description () + " konden niet worden gelezen.");
@@ -737,9 +743,14 @@ private:
         }
 
         err = ACAPI_Element_Create (&element, &memo);
-        ACAPI_DisposeElemMemoHdls (&memo);
         if (err != NoError) {
+            ACAPI_DisposeElemMemoHdls (&memo);
             return ErrorResponse (err, GS::UniString (Description ()) + " kon niet worden aangemaakt.");
+        }
+        const GS::Optional<GS::ObjectState> afterError = AfterCreate (element, memo, item);
+        ACAPI_DisposeElemMemoHdls (&memo);
+        if (afterError.HasValue ()) {
+            return *afterError;
         }
 
         // Het ID zetten gebeurt na het aanmaken. Lijnen, polylijnen, bogen, cirkels en splines hebben in Archicad geen
@@ -1191,6 +1202,364 @@ protected:
     }
 };
 
+
+// ================================================================== groep 3 (deel 2): oppervlakken en morphs (gebouwen)
+
+// Een attribuut (bijvoorbeeld een oppervlak) opzoeken aan de hand van {"guid": "..."}.
+bool ResolveAttributeIndex (const GS::ObjectState& attributeId, API_AttrTypeID type, API_AttributeIndex& index)
+{
+    API_Attribute attribute = {};
+    attribute.header.typeID = type;
+    attribute.header.guid = GuidOfObject (attributeId);
+    if (attribute.header.guid == APINULLGuid || ACAPI_Attribute_Get (&attribute) != NoError) {
+        return false;
+    }
+    index = attribute.header.index;
+    return true;
+}
+
+API_Coord3D Coordinate3D (const GS::ObjectState& os)
+{
+    API_Coord3D coordinate = {};
+    os.Get ("x", coordinate.x);
+    os.Get ("y", coordinate.y);
+    os.Get ("z", coordinate.z);
+    return coordinate;
+}
+
+// De verdieping bij een absolute hoogte: de hoogste verdieping waarvan het niveau niet boven die hoogte ligt,
+// en anders de laagste. Naar Tapirs GetFloorIndexAndOffset.
+short FloorIndexOfZ (double z)
+{
+    API_StoryInfo storyInfo = {};
+    short result = 0;
+    if (ACAPI_ProjectSetting_GetStorySettings (&storyInfo) != NoError) {
+        return result;
+    }
+    if (storyInfo.data != nullptr) {
+        const short numberOfStories = storyInfo.lastStory - storyInfo.firstStory + 1;
+        bool found = false;
+        double bestLevel = 0.0;
+        short lowest = 0;
+        double lowestLevel = 0.0;
+        for (short i = 0; i < numberOfStories; ++i) {
+            const short index = (*storyInfo.data)[i].index;
+            const double level = (*storyInfo.data)[i].level;
+            if (level <= z && (!found || level >= bestLevel)) {
+                result = index;
+                bestLevel = level;
+                found = true;
+            }
+            if (i == 0 || level < lowestLevel) {
+                lowest = index;
+                lowestLevel = level;
+            }
+        }
+        if (!found) {
+            result = lowest;
+        }
+    }
+    BMKillHandle (reinterpret_cast<GSHandle*> (&storyInfo.data));
+    return result;
+}
+
+// ---- EnsureSurface {name, update?, materialType?, ambientReflection?, diffuseReflection?, specularReflection?, transparency?,
+//      shine?, transparencyAttenuation?, emissionAttenuation?, surfaceColor?, specularColor?, emissionColor?}
+//      -> {attributeId, created, updated}
+//      Een bestaand oppervlak blijft ongemoeid, behalve met update of als het nog nulwaarden heeft (dan is het zwart).
+class EnsureSurfaceCommand final : public CommandBase
+{
+public:
+    virtual GS::String GetName () const override { return "EnsureSurface"; }
+
+    virtual GS::ObjectState Execute (const GS::ObjectState& parameters, GS::ProcessControl&) const override
+    {
+        GS::UniString name;
+        if (!parameters.Get ("name", name) || name.IsEmpty ()) {
+            return ErrorResponse (APIERR_BADPARS, "De parameter name ontbreekt.");
+        }
+        bool update = false;
+        parameters.Get ("update", update);
+
+        GS::UniString lookupName = name;
+        API_Attribute attribute = {};
+        attribute.header.typeID = API_MaterialID;
+        attribute.header.uniStringNamePtr = &lookupName;
+        const bool exists = ACAPI_Attribute_Get (&attribute) == NoError;
+        const bool emptyValues = exists && attribute.material.diffusePc == 0 && attribute.material.ambientPc == 0;
+
+        if (exists && !update && !emptyValues) {
+            GS::ObjectState existing;
+            existing.Add ("attributeId", GuidObject (attribute.header.guid));
+            existing.Add ("created", false);
+            existing.Add ("updated", false);
+            return existing;
+        }
+
+        if (!exists) {
+            attribute = {};
+            attribute.header.typeID = API_MaterialID;
+            GS::UniString newName = name;
+            attribute.header.uniStringNamePtr = &newName;
+            attribute.material.mtype = APIMater_GeneralID;
+            ApplyFields (parameters, attribute);
+            API_AttributeDef definition = {};
+            const GSErrCode err = ACAPI_Attribute_Create (&attribute, &definition);
+            ACAPI_DisposeAttrDefsHdls (&definition);
+            if (err != NoError) {
+                return ErrorResponse (err, GS::UniString ("Het oppervlak '") + name + "' kon niet worden aangemaakt.");
+            }
+            GS::ObjectState created;
+            created.Add ("attributeId", GuidObject (attribute.header.guid));
+            created.Add ("created", true);
+            created.Add ("updated", false);
+            return created;
+        }
+
+        ApplyFields (parameters, attribute);
+        API_AttributeDef definition = {};
+        const GSErrCode err = ACAPI_Attribute_Modify (&attribute, &definition);
+        ACAPI_DisposeAttrDefsHdls (&definition);
+        if (err != NoError) {
+            return ErrorResponse (err, GS::UniString ("Het oppervlak '") + name + "' kon niet worden bijgewerkt.");
+        }
+        GS::ObjectState updated;
+        updated.Add ("attributeId", GuidObject (attribute.header.guid));
+        updated.Add ("created", false);
+        updated.Add ("updated", true);
+        return updated;
+    }
+
+private:
+    static void ApplyFields (const GS::ObjectState& parameters, API_Attribute& attribute)
+    {
+        // Als getal gelezen (niet als short): een JSON-getal wordt als double bewaard (zie Tapirs toelichting bij CreateSurfaces).
+        double value = 0.0;
+        if (parameters.Get ("ambientReflection", value)) { attribute.material.ambientPc = static_cast<short> (value); }
+        if (parameters.Get ("diffuseReflection", value)) { attribute.material.diffusePc = static_cast<short> (value); }
+        if (parameters.Get ("specularReflection", value)) { attribute.material.specularPc = static_cast<short> (value); }
+        if (parameters.Get ("transparency", value)) { attribute.material.transpPc = static_cast<short> (value); }
+        if (parameters.Get ("shine", value)) { attribute.material.shine = static_cast<short> (value); }
+        if (parameters.Get ("transparencyAttenuation", value)) { attribute.material.transpAtt = static_cast<short> (value); }
+        if (parameters.Get ("emissionAttenuation", value)) { attribute.material.emissionAtt = static_cast<short> (value); }
+        ReadColor (parameters, "surfaceColor", attribute.material.surfaceRGB);
+        ReadColor (parameters, "specularColor", attribute.material.specularRGB);
+        ReadColor (parameters, "emissionColor", attribute.material.emissionRGB);
+    }
+};
+
+// De rand tussen twee hoekpunten hergebruiken: twee aangrenzende vlakken delen dezelfde rand, in tegengestelde richting.
+// Naar Tapirs GetOrAddEdge (het DevKit eist: "an edge can be used with at most 2 polygons, in opposite directions").
+Int32 GetOrAddEdge (void* bodyData, UInt32 a, UInt32 b, std::map<std::pair<UInt32, UInt32>, Int32>& edgeCache)
+{
+    const bool flipped = a > b;
+    const std::pair<UInt32, UInt32> key = flipped ? std::make_pair (b, a) : std::make_pair (a, b);
+    const auto found = edgeCache.find (key);
+    if (found != edgeCache.end ()) {
+        return flipped ? -found->second : found->second;
+    }
+    Int32 index = 0;
+    ACAPI_Body_AddEdge (bodyData, key.first, key.second, index);
+    edgeCache[key] = index;
+    return flipped ? -index : index;
+}
+
+struct BodyHolder
+{
+    void* data = nullptr;
+    ~BodyHolder ()
+    {
+        if (data != nullptr) {
+            ACAPI_Body_Dispose (&data);
+        }
+    }
+};
+
+// Bouwt het lichaam van een morph uit {vertices: [{x, y, z}], polygons: [{vertexIds, surfaceId?, holes?: [{vertexIds}]}]}.
+// Naar Tapirs BuildMorphBodyFromGeometry (zonder draadranden).
+bool BuildMorphBody (const GS::ObjectState& bodyOS, API_ElementMemo& memo, GS::UniString& errorOut, bool& hasFaceSurfaces)
+{
+    hasFaceSurfaces = false;
+    GS::Array<GS::ObjectState> verticesOS;
+    GS::Array<GS::ObjectState> polygonsOS;
+    bodyOS.Get ("vertices", verticesOS);
+    bodyOS.Get ("polygons", polygonsOS);
+
+    GS::UniString bodyTypeText;
+    bodyOS.Get ("bodyType", bodyTypeText);
+    if (bodyTypeText == "Surface") {
+        if (verticesOS.GetSize () < 3 || polygonsOS.GetSize () < 1) {
+            errorOut = "Een open lichaam heeft minstens 3 hoekpunten en 1 vlak nodig.";
+            return false;
+        }
+    } else if (verticesOS.GetSize () < 4 || polygonsOS.GetSize () < 4) {
+        errorOut = "Een gesloten lichaam heeft minstens 4 hoekpunten en 4 vlakken nodig.";
+        return false;
+    }
+
+    BodyHolder body;
+    if (ACAPI_Body_Create (nullptr, nullptr, &body.data) != NoError || body.data == nullptr) {
+        errorOut = "Het lichaam van de morph kon niet worden gestart.";
+        return false;
+    }
+
+    GS::Array<UInt32> vertexIndices;
+    vertexIndices.SetSize (verticesOS.GetSize ());      // SetSize, niet de constructor met een getal (dat reserveert alleen)
+    for (UIndex i = 0; i < verticesOS.GetSize (); ++i) {
+        UInt32 index = 0;
+        ACAPI_Body_AddVertex (body.data, Coordinate3D (verticesOS[i]), index);
+        vertexIndices[i] = index;
+    }
+
+    std::map<std::pair<UInt32, UInt32>, Int32> edgeCache;
+    auto resolveLoop = [&] (const GS::Array<Int32>& loop, GS::Array<Int32>& edgeIndices) -> bool {
+        for (UIndex i = 0; i < loop.GetSize (); ++i) {
+            const Int32 from = loop[i];
+            const Int32 to = loop[(i + 1) % loop.GetSize ()];
+            if (from < 0 || static_cast<UIndex> (from) >= vertexIndices.GetSize () || to < 0 || static_cast<UIndex> (to) >= vertexIndices.GetSize ()) {
+                return false;
+            }
+            edgeIndices.Push (GetOrAddEdge (body.data, vertexIndices[from], vertexIndices[to], edgeCache));
+        }
+        return true;
+    };
+
+    for (const GS::ObjectState& polygonOS : polygonsOS) {
+        GS::Array<Int32> outer;
+        polygonOS.Get ("vertexIds", outer);
+        if (outer.GetSize () < 3) {
+            errorOut = "Elk vlak heeft minstens 3 hoekpunten nodig.";
+            return false;
+        }
+        GS::Array<Int32> edgeIndices;
+        if (!resolveLoop (outer, edgeIndices)) {
+            errorOut = "Een vlak verwijst naar een hoekpunt dat niet bestaat.";
+            return false;
+        }
+
+        GS::Array<GS::ObjectState> holesOS;
+        if (polygonOS.Get ("holes", holesOS)) {
+            for (const GS::ObjectState& holeOS : holesOS) {
+                GS::Array<Int32> hole;
+                holeOS.Get ("vertexIds", hole);
+                if (hole.GetSize () < 3) {
+                    errorOut = "Elk gat heeft minstens 3 hoekpunten nodig.";
+                    return false;
+                }
+                edgeIndices.Push (0);                               // 0 scheidt de buitenrand van een gat
+                if (!resolveLoop (hole, edgeIndices)) {
+                    errorOut = "Een gat verwijst naar een hoekpunt dat niet bestaat.";
+                    return false;
+                }
+            }
+        }
+
+        // Het oppervlak van dit vlak (een surface, geen bouwmateriaal); zonder oppervlak erft het vlak dat van de morph.
+        API_OverriddenAttribute material = {};
+        const GS::ObjectState* faceSurface = polygonOS.Get ("surfaceId");
+        if (faceSurface != nullptr) {
+            API_AttributeIndex faceSurfaceIndex = APIInvalidAttributeIndex;
+            if (!ResolveAttributeIndex (*faceSurface, API_MaterialID, faceSurfaceIndex)) {
+                errorOut = "Een vlak verwijst naar een oppervlak dat niet bestaat.";
+                return false;
+            }
+            material = faceSurfaceIndex;
+            hasFaceSurfaces = true;
+        }
+
+        UInt32 polygonIndex = 0;
+        if (ACAPI_Body_AddPolygon (body.data, edgeIndices, 0, material, polygonIndex) != NoError) {
+            errorOut = "Een vlak van de morph kon niet worden opgebouwd (controleer de volgorde van de hoekpunten).";
+            return false;
+        }
+    }
+
+    if (ACAPI_Body_Finish (body.data, &memo.morphBody, &memo.morphMaterialMapTable) != NoError) {
+        errorOut = "Het lichaam van de morph kon niet worden afgerond.";
+        return false;
+    }
+    return true;
+}
+
+// ---- CreateMorphs {morphsData: [{basePoint: {x, y, z}, body: {bodyType?, vertices, polygons}, layerIndex?, floorIndex?, id?}]}
+//      De hoekpunten staan in lokale coordinaten; het basispunt is een absolute plek (z in NAP).
+class CreateMorphsCommand final : public Create2DCommand
+{
+public:
+    virtual GS::String GetName () const override { return "CreateMorphs"; }
+
+protected:
+    virtual const char*     ArrayField () const override { return "morphsData"; }
+    virtual const char*     UndoText () const override { return "PDOK Import: morphs maken"; }
+    virtual API_ElemTypeID  TypeId () const override { return API_MorphID; }
+    virtual GS::UniString   Description () const override { return "De morph"; }
+    virtual bool            WantsDefaultMemo () const override { return false; }
+
+    virtual GS::Optional<GS::ObjectState> Fill (API_Element& element, API_ElementMemo& memo, const GS::ObjectState& item) const override
+    {
+        const GS::ObjectState* basePointOS = item.Get ("basePoint");
+        const GS::ObjectState* bodyOS = item.Get ("body");
+        if (basePointOS == nullptr || bodyOS == nullptr) {
+            return ErrorResponse (APIERR_BADPARS, "basePoint en body zijn verplicht.");
+        }
+        const API_Coord3D basePoint = Coordinate3D (*basePointOS);
+
+        // Zonder floorIndex hoort de morph bij de verdieping waarin zijn basispunt ligt.
+        short floorIndex = 0;
+        if (!item.Get ("floorIndex", floorIndex)) {
+            floorIndex = FloorIndexOfZ (basePoint.z);
+        }
+        element.header.floorInd = floorIndex;
+
+        // Geen draaiing, alleen een verplaatsing naar het basispunt (de z is absoluut).
+        double* tmx = element.morph.tranmat.tmx;
+        tmx[0] = 1.0;  tmx[4] = 0.0;  tmx[8] = 0.0;
+        tmx[1] = 0.0;  tmx[5] = 1.0;  tmx[9] = 0.0;
+        tmx[2] = 0.0;  tmx[6] = 0.0;  tmx[10] = 1.0;
+        tmx[3] = basePoint.x;
+        tmx[7] = basePoint.y;
+        tmx[11] = basePoint.z;
+
+        bool hasFaceSurfaces = false;
+        GS::UniString bodyError;
+        if (!BuildMorphBody (*bodyOS, memo, bodyError, hasFaceSurfaces)) {
+            return ErrorResponse (APIERR_GENERAL, bodyError);
+        }
+        GS::UniString bodyType;
+        element.morph.bodyType = (bodyOS->Get ("bodyType", bodyType) && bodyType == "Surface") ? APIMorphBodyType_SurfaceBody
+                                                                                               : APIMorphBodyType_SolidBody;
+        return {};
+    }
+
+    // ACAPI_Element_Create bewaart de oppervlakken per vlak niet: het lichaam wordt daarna nog eens geschreven
+    // (zoals Tapir en het Element_Test-voorbeeld van het DevKit doen).
+    virtual GS::Optional<GS::ObjectState> AfterCreate (API_Element& element, API_ElementMemo& memo, const GS::ObjectState& item) const override
+    {
+        const GS::ObjectState* bodyOS = item.Get ("body");
+        bool hasFaceSurfaces = false;
+        if (bodyOS != nullptr) {
+            GS::Array<GS::ObjectState> polygons;
+            bodyOS->Get ("polygons", polygons);
+            for (const GS::ObjectState& polygon : polygons) {
+                if (polygon.Get ("surfaceId") != nullptr) {
+                    hasFaceSurfaces = true;
+                    break;
+                }
+            }
+        }
+        if (!hasFaceSurfaces) {
+            return {};
+        }
+        API_Element emptyMask = {};
+        ACAPI_ELEMENT_MASK_CLEAR (emptyMask);
+        const GSErrCode err = ACAPI_Element_Change (&element, &emptyMask, &memo, APIMemoMask_All, true);
+        if (err != NoError) {
+            return ErrorResponse (err, "De morph is gemaakt, maar de oppervlakken per vlak konden niet worden gezet.");
+        }
+        return {};
+    }
+};
+
 // ---- GetSelectedElements -> {elements: [{elementId}]}
 class GetSelectedElementsCommand final : public CommandBase
 {
@@ -1250,6 +1619,8 @@ GSErrCode RegisterAll ()
     err |= Register<CreateHatchesCommand> ();
     err |= Register<CreateObjectsCommand> ();
     err |= Register<CreateTextsCommand> ();
+    err |= Register<EnsureSurfaceCommand> ();
+    err |= Register<CreateMorphsCommand> ();
     return err;
 }
 

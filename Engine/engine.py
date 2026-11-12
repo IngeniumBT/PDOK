@@ -84,6 +84,7 @@ button{padding:5px 10px;margin:2px 6px 2px 0}
 <div><b>Groep 3 (3D):</b> bibliotheekobject
  <input id="objnaam" value="Boom stedenbouw 02" size="22"> op hoogte z <input id="z0" value="0" size="6"> m
  <button id="b_obj">Test: object plaatsen</button>
+ <button id="b_morph">Test: morph (blok) maken</button>
 </div>
 <div class="klein">Om de laatste vier te proberen: teken in Archicad zelf een lijn of een ander element, selecteer het, en kies
  "Selectie op de testlaag zetten". Het krijgt dan de laag PDOK_test en het ID TEST-1, TEST-2...</div>
@@ -243,6 +244,20 @@ knop.b_tekst = async () => {
       text: 'PDOK test\nregel twee', coordinate: {x: x, y: y + 45}}]}); if (!p) return;
   const e = (p.elements || [])[0] || {};
   schrijf(e.elementId ? 'Tekst met twee regels geplaatst op laag PDOK_test rond (' + x + ', ' + (y + 45) + '), hoogte 2,5.' : 'Tekst mislukt: ' + JSON.stringify(e.error || e));
+};
+knop.b_morph = async () => {
+  const laag = await testlaagIndex(); if (laag === null) return;
+  const [x, y] = xy(); const z = parseFloat(document.getElementById('z0').value) || 0;
+  const dak = await stap('Oppervlak dak', 'EnsureSurface', {name: 'PDOK_dak', ambientReflection: 70, diffuseReflection: 90, specularReflection: 8,
+      surfaceColor: {red: 0.55, green: 0.25, blue: 0.20}}); if (!dak) return;
+  const muur = await stap('Oppervlak muur', 'EnsureSurface', {name: 'PDOK_muur', ambientReflection: 70, diffuseReflection: 90, specularReflection: 8,
+      surfaceColor: {red: 0.85, green: 0.82, blue: 0.76}}); if (!muur) return;
+  const v = [[0,0,0],[10,0,0],[10,10,0],[0,10,0],[0,0,8],[10,0,8],[10,10,8],[0,10,8]].map(c => ({x: c[0], y: c[1], z: c[2]}));
+  const vlak = (ids, opp) => ({vertexIds: ids, surfaceId: opp.attributeId});
+  const body = {vertices: v, polygons: [vlak([0,3,2,1], muur), vlak([4,5,6,7], dak), vlak([0,1,5,4], muur), vlak([1,2,6,5], muur), vlak([2,3,7,6], muur), vlak([3,0,4,7], muur)]};
+  const p = await stap('Morph', 'CreateMorphs', {morphsData: [{basePoint: {x: x + 60, y: y, z: z}, body: body, layerIndex: laag, id: 'TEST-MORPH'}]}); if (!p) return;
+  const e = (p.elements || [])[0] || {};
+  schrijf(e.elementId ? 'Morph (blok 10 x 10 x 8 m, dak en muren met eigen oppervlak) geplaatst op (' + (x + 60) + ', ' + y + ') op hoogte ' + z + ' m, ID TEST-MORPH.' : 'Morph mislukt: ' + JSON.stringify(e.error || e));
 };
 knop.b_basis = async () => {
   schrijf('--- basistests ---');

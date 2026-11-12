@@ -108,36 +108,20 @@ def zorg_voor_oppervlakken(k, bijwerken=False, definities=None):
     """Maakt de oppervlakken aan als ze nog niet bestaan. Geeft {'dak': {'guid': ..}, ...} of None bij een fout.
 
     Een bestaand oppervlak blijft ongemoeid, behalve als het nog de nulwaarden heeft die een eerdere proef
-    achterliet (zonder reflectie ziet het er zwart uit), of als je --oppervlakken-bijwerken gebruikt."""
+    achterliet (zonder reflectie ziet het er zwart uit), of als je --oppervlakken-bijwerken gebruikt. Dat beslist de
+    opdracht EnsureSurface van de add-on."""
     try:
-        r = k.officieel("API.GetAttributesByType", {"attributeType": "Surface"})
-        ids = r.get("result", {}).get("attributeIds", [])
-        bestaand = {}
-        for i in range(0, len(ids), 100):
-            d = k.pak(k.tapir("GetSurfaces", {"attributeIds": ids[i:i + 100]})).get("surfaces", [])
-            for it in d:
-                bestaand[it.get("name")] = it
         uit = {}
         for sleutel, (naam, kleur) in (definities or OPPERVLAKKEN).items():
-            it = bestaand.get(naam)
-            leeg = bool(it) and it.get("diffuseReflection") == 0 and it.get("ambientReflection") == 0
-            if it and not bijwerken and not leeg:
-                uit[sleutel] = {"guid": guid_uit(it["attributeId"])}
-                toestand = "bestond al"
-            else:
-                invoer = oppervlak_definitie(naam, kleur)
-                if it:
-                    invoer["attributeId"] = it["attributeId"]
-                r = k.tapir("CreateSurfaces", {"surfaceDataArray": [invoer], "overwriteExisting": True})
-                if not r.get("succeeded"):
-                    print(f"   oppervlak {naam} aanmaken mislukt:", str(r.get("error", r))[:300])
-                    return None
-                nieuw = k.pak(r).get("attributeIds") or []
-                if not nieuw or not guid_uit(nieuw[0]):
-                    print(f"   oppervlak {naam} aanmaken mislukt: Archicad gaf geen oppervlak terug")
-                    return None
-                uit[sleutel] = {"guid": guid_uit(nieuw[0])}
-                toestand = "bijgewerkt" if it else "aangemaakt"
+            invoer = oppervlak_definitie(naam, kleur)
+            invoer["update"] = bool(bijwerken)
+            r = k.tapir("EnsureSurface", invoer)
+            if not r.get("succeeded") or not guid_uit(k.pak(r).get("attributeId")):
+                print(f"   oppervlak {naam} aanmaken mislukt:", str(r.get("error", r))[:300])
+                return None
+            p = k.pak(r)
+            uit[sleutel] = {"guid": guid_uit(p["attributeId"])}
+            toestand = "aangemaakt" if p.get("created") else ("bijgewerkt" if p.get("updated") else "bestond al")
             print(f"   oppervlak {naam}: {toestand}")
         return uit
     except Exception as fout:
@@ -423,13 +407,13 @@ def bouw_lichaam(pand, lod, z_verschuiving=0.0, opp_ids=None, driehoeken=False):
         if oppervlak_id:
             d["surfaceId"] = oppervlak_id
         if gaten:
-            d["holes"] = [[idx(i) for i in (list(reversed(g)) if omkeren else g)] for g in gaten]
+            d["holes"] = [{"vertexIds": [idx(i) for i in (list(reversed(g)) if omkeren else g)]} for g in gaten]
         polygonen.append(d)
 
     # Gesloten? Elke rand hoort in precies twee vlakken voor te komen.
     randen = Counter()
     for d in polygonen:
-        for ring in [d["vertexIds"]] + d.get("holes", []):
+        for ring in [d["vertexIds"]] + [h["vertexIds"] for h in d.get("holes", [])]:
             for a, b in zip(ring, ring[1:] + ring[:1]):
                 randen[(min(a, b), max(a, b))] += 1
     open_randen = sum(1 for n in randen.values() if n == 1)
