@@ -118,6 +118,12 @@ GAT_TOL = 0.001             # m: een gatpunt binnen deze afstand van de rand of 
 GAT_UITBUIGING = 0.02       # m: zoveel schuiven we een rakend gatpunt naar het midden van zijn gat
 VLAK_TOLERANTIE = 0.02      # m, binnen deze spreiding in hoogte is een object vlak (geen binnenpunten)
 MAX_PUNTEN_PER_AANROEP = 4000
+# Een viaduct of brugdek ligt in plattegrond boven een ander object (de weg of het water eronder). Zo'n dek wordt een dunne plaat
+# met een eigen onderkant, in plaats van een massief blok tot de gemeenschappelijke onderkant van het terrein.
+DEK_MIN_VERSCHIL = 1.0      # m: zoveel hoger dan het object eronder moet het liggen
+DEK_MIN_DEEL = 0.25         # minstens dit deel van het oppervlak ligt boven een ander object
+DEK_DIKTE = 0.6             # m: de dikte van een dek (onder zijn laagste punt)
+DEK_STAP = 2.0              # m: rastermaat voor het meten van overlap
 MAX_HELE_OBJECT = 60000     # een object met meer driehoeken wordt bij een klein gebied afgeknipt tot het gebied
 SKIRT_TYPEN = {"oppervlak": "SurfaceOnlyWithoutSkirt", "zijvlakken": "WithSkirt", "volume": "SolidBodyWithSkirt"}
 STANDAARD_SKIRT = "volume"
@@ -1919,6 +1925,51 @@ def verzamel(gebied, typen, met_bruggen, voetafdrukken=False, sla_over=()):
 GROOT_GEBIED = 600.0  # m: een gebied met een zijde groter dan dit wordt in blokken geimporteerd
 
 
+HOOGTELIGGING = {}   # mesh-ID -> relatieve hoogteligging uit de bron (zie bouw_alle_meshes)
+
+
+def hoogteligging_van(at):
+    """De relatieve hoogteligging (0 = maaiveld, 1 en hoger = erboven, negatief = eronder) uit de eigenschappen, of None."""
+    for sleutel in ("relatieve_hoogteligging", "relatieveHoogteligging", "relatieve-hoogteligging", "hoogteligging"):
+        if sleutel in at:
+            try:
+                return int(float(at[sleutel]))
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def mesh_zgemiddeld(m):
+    zs = [p["z"] for p in m["polygonCoordinates"]]
+    return sum(zs) / len(zs)
+
+
+def bepaal_dekken(meshes):
+    """De ID's van meshes die een dek zijn: ze liggen (voor een groot deel) in plattegrond boven een ander object, of de bron zegt
+    dat ze boven het maaiveld liggen (relatieve hoogteligging groter dan 0). Geeft (ID's, aantal door de bron, aantal door overlap)."""
+    cel = defaultdict(list)
+    totaal = Counter()
+    for i, (_t, m) in enumerate(meshes):
+        buiten = ring_xy(m["polygonCoordinates"])
+        gaten = [ring_xy(h["polygonCoordinates"]) for h in m.get("holes", [])]
+        z = mesh_zgemiddeld(m)
+        for c in cellen_binnen(buiten, gaten, DEK_STAP):
+            cel[c].append((z, i))
+            totaal[i] += 1
+    boven = Counter()
+    for lijst in cel.values():
+        if len(lijst) < 2:
+            continue
+        lijst.sort()
+        laagste = lijst[0][0]
+        for z, i in lijst[1:]:
+            if z - laagste >= DEK_MIN_VERSCHIL:
+                boven[i] += 1
+    door_overlap = {meshes[i][1]["id"] for i, n in boven.items() if totaal[i] and n >= DEK_MIN_DEEL * totaal[i]}
+    door_bron = {m["id"] for _t, m in meshes if (HOOGTELIGGING.get(m["id"]) or 0) > 0}
+    return door_overlap | door_bron, len(door_bron), len(door_overlap)
+
+
 def bouw_alle_meshes(objecten, opties):
     meshes, totaal = [], Counter()
     for o in objecten:
@@ -1926,6 +1977,9 @@ def bouw_alle_meshes(objecten, opties):
         ms, st = bouw_meshes(o, X, Y, Z, opties["z"])
         for k_, v in st.items():
             totaal[k_] += v
+        hl = hoogteligging_van(o.get("attributen") or {})
+        for m in ms:
+            HOOGTELIGGING[m["id"]] = hl          # apart bewaard: de naadsluiting maakt nieuwe mesh-gegevens
         meshes += [(o["type"], m) for m in ms]
     return meshes, totaal
 
@@ -2036,6 +2090,7 @@ def lees_argumenten(argumenten):
               "sla_over": [], "materialen": "--zonder-materiaal" not in argumenten,
               "bomen": "--bomen" in argumenten, "boomobject": "",
               "skirt": STANDAARD_SKIRT, "diepte": STANDAARD_DIEPTE,
+              "dekken": "--geen-dekken" not in argumenten, "dekdikte": DEK_DIKTE,
               "controle": "--controle" in argumenten, "ondergrond": "--ondergrond" in argumenten,
               "raster": None, "naad": "gemiddelde", "marge": NAAD_MARGE_STANDAARD, "ankers": "--geen-ankers" not in argumenten,
               "naadmax": NAAD_MAX_VERSCHIL, "naadsluiting": "--geen-naadsluiting" not in argumenten,
@@ -2058,6 +2113,10 @@ def lees_argumenten(argumenten):
             continue
         if a == "--skirt" and i + 1 < len(argumenten):
             opties["skirt"] = argumenten[i + 1].strip().lower()
+            i += 2
+            continue
+        if a == "--dekdikte" and i + 1 < len(argumenten):
+            opties["dekdikte"] = float(argumenten[i + 1])
             i += 2
             continue
         if a == "--diepte" and i + 1 < len(argumenten):
@@ -2159,6 +2218,9 @@ def hoofd(argumenten):
         X, Y, Z = o["xyz"]
         ms, st = bouw_meshes(o, X, Y, Z, opties["z"])
         per_object[o["id"]] = ms
+        hl = hoogteligging_van(o.get("attributen") or {})
+        for m in ms:
+            HOOGTELIGGING[m["id"]] = hl
         for k, v in st.items():
             totaal[k] += v
         tellers[o["type"]]["objecten"] += 1
@@ -2565,6 +2627,12 @@ def _teken(meshes, opties):
             skirt_type = "SurfaceOnlyWithoutSkirt"
     if run is not None and run.get("skirt") is None:
         run["skirt"] = (skirt_type, skirt_model)
+    dekken = set()
+    if skirt_type != "SurfaceOnlyWithoutSkirt" and opties.get("dekken", True):
+        dekken, n_bron, n_overlap = bepaal_dekken(meshes)
+        if dekken:
+            print(f"\n{len(dekken)} meshes herkend als viaduct of brugdek ({n_bron} volgens de bron, {n_overlap} doordat ze boven een ander "
+                  f"object liggen); die krijgen een dunne onderkant van {opties.get('dekdikte', DEK_DIKTE):g} m.")
     if skirt_model:
         onderkant = min(mesh_zmin(m_) for _, m_ in meshes) - opties.get("diepte", STANDAARD_DIEPTE)
         if run is None:
@@ -2576,7 +2644,8 @@ def _teken(meshes, opties):
         d = {"polygonCoordinates": bron["polygonCoordinates"], "level": 0, "floorIndex": 0,
              "skirtType": skirt_type, "id": m["id"], "showLines": bool(opties["lijnen"])}
         if skirt_model:
-            d["skirtLevel"] = round(skirt_model[1](mesh_zmin(bron), onderkant), 3)
+            doel = (mesh_zmin(bron) - opties.get("dekdikte", DEK_DIKTE)) if m["id"] in dekken else onderkant
+            d["skirtLevel"] = round(skirt_model[1](mesh_zmin(bron), doel), 3)
         if bron.get("holes") and not zonder_gaten:
             d["holes"] = bron["holes"]
         if m.get("sublines") and not zonder_punten:
@@ -2832,6 +2901,20 @@ def diagnose_dekking(k, gebied):
     brug = [o for o in objecten if (o["attributen"] or {}).get("hoortbijbrug")]
     gewone = [o for o in objecten if not (o["attributen"] or {}).get("hoortbijbrug")]
     meshes, _stat = bouw_alle_meshes(gewone, {"z": 0.0})
+    # welke eigenschappen heeft de bron? (zo zien we onder welke naam bijvoorbeeld de hoogteligging staat)
+    sleutels = defaultdict(Counter)
+    for o in objecten:
+        for sl, w in (o["attributen"] or {}).items():
+            sleutels[sl][str(w)[:40]] += 1
+    print("Eigenschappen van de terreinobjecten in de bron:")
+    for sl in sorted(sleutels):
+        waarden = sleutels[sl]
+        if len(waarden) <= 8:
+            print(f"   {sl}: " + ", ".join(f"{w} ({n})" for w, n in waarden.most_common()))
+        else:
+            print(f"   {sl}: {len(waarden)} verschillende waarden")
+    dekken, n_bron, n_overlap = bepaal_dekken(meshes)
+    print(f"Viaducten of brugdekken: {len(dekken)} meshes ({n_bron} volgens de eigenschappen, {n_overlap} doordat ze boven een ander object liggen).\n")
     verwacht = defaultdict(lambda: {"opp": 0.0, "n": 0, "type": "", "punten": []})
     for typ, m in meshes:
         b = verwacht[basis_id(m["id"])]
@@ -2892,7 +2975,7 @@ def wis_terrein(k):
     return leegmaken(zonder_vraag=True)
 
 
-def importeer_terrein(k, gebied, oppervlakken=True, naadsluiting=True, sla_over=(), skirt=None, diepte=None):
+def importeer_terrein(k, gebied, oppervlakken=True, naadsluiting=True, sla_over=(), skirt=None, diepte=None, dekken=True):
     """Voor het kaartvenster: haalt het terrein voor het gebied (xmin, ymin, xmax, ymax in RD) op en maakt het
     aan als Meshes. naadsluiting zet de naadsluiting aan of uit; sla_over is een lijst BGT-typen (bgt_type) die
     worden overgeslagen. Maakt ook de terreinoppervlakken aan. k is de kaart-module.
@@ -2908,6 +2991,8 @@ def importeer_terrein(k, gebied, oppervlakken=True, naadsluiting=True, sla_over=
             argumenten += ["--sla-over", str(soort).strip()]
     if not oppervlakken:
         argumenten.append("--zonder-materiaal")
+    if not dekken:
+        argumenten.append("--geen-dekken")
     if skirt in SKIRT_TYPEN:
         argumenten += ["--skirt", str(skirt)]
     try:

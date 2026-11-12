@@ -10,6 +10,10 @@ Eén `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat ee
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.11.0: viaducten en brugdekken.** Een viaduct werd een massief blok tot de onderkant van het terrein. Nu worden meshes die een
+  dek zijn (ze liggen in plattegrond boven een ander object, of de bron zegt dat ze boven het maaiveld liggen) een dunne plaat van
+  0,6 m, met het terrein eronder dat gewoon doorloopt. Te kiezen met *Viaducten en brugdekken als dun dek*. De **Terreincontrole**
+  noemt nu ook de eigenschappen van de bron en hoeveel dekken zijn herkend.
 - **0.10.1: de aansluiting van gebieden.** Een object dat de gebiedsrand kruist (een lange weg) werd bij een klein gebied afgeknipt;
   een aangrenzende import sloeg het daarna over omdat het ID er al stond, en zo ontstonden witte delen. Nu wordt een object dat het
   gebied raakt als geheel gemaakt. Nieuw: de knoppen **Terreincontrole** (vergelijkt Archicad met de bron en meldt wat ontbreekt of
@@ -80,6 +84,8 @@ Archicad: **PDOK Import > PDOK Import openen...**. Het palet toont nu de **kaart
    klein gebied (ongeveer 300 x 300 m). Het testpaneel heeft **Test: mesh (terrein) maken**.
    **Let op bij een update van 0.10.0 of eerder:** de meshes die je al hebt zijn afgeknipt en worden niet vanzelf aangevuld. Klik op
    **Terreincontrole** (met een getekend gebied) om te zien wat er ontbreekt, dan op **Terrein wissen** (twee klikken) en importeer opnieuw.
+   **Viaducten:** vink *Viaducten en brugdekken als dun dek* aan (standaard). Klopt een viaduct nog niet, klik dan op **Terreincontrole**
+   en plak de uitvoer: de lijst met eigenschappen van de bron laat zien onder welke naam de hoogteligging staat.
    Onder *Terrein* kies je de **onderkant** (volume, zijvlakken of alleen het bovenvlak) en de **diepte** in meter.
    Controleer in 3D of de gebouwen op het terrein staan. Test de aansluiting door een tweede, aangrenzend gebied te importeren:
    de vlakken langs de grens horen dezelfde hoogte te hebben.
