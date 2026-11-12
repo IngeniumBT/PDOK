@@ -10,6 +10,7 @@ Eén `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat ee
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.4.1:** een ID voor een element dat er geen kan hebben (lijn, polylijn) verwijdert het element niet meer.
 - **0.4 (groep 2, deel 1):** de opdrachten **CreatePolylines** en **CreateHatches** (vlakken met gaten, pennen, kleur en
   effen vulling), en bij het wisselen van venster meldt de add-on nu ook de **database** waarin de opdrachten werken.
 - **Volgt:** groep 2 deel 2 (teksten voor de perceelnummers), groep 3 (3D: meshes, morphs, objecten) en de echte kaart met de import.
@@ -45,7 +46,8 @@ Archicad: **PDOK Import > PDOK Import openen...**. Het palet toont bovenaan de m
    Na *Naar 3D* hoort de huidige database `3DModel` te zijn, en na *Naar plattegrond* `FloorPlan`.
 2. Vul bij **Groep 2 (2D)** de coordinaten in waar je de testvormen wilt hebben (standaard rond RD 260250, 482250, het
    gebied van je eerdere tests; pas aan als jouw model elders ligt).
-3. **Test: polylijn tekenen**: een lijn van 20 m met een knik, op de laag `PDOK_test`, ID `TEST-LIJN`.
+3. **Test: polylijn tekenen**: een lijn van 20 m met een knik, op de laag `PDOK_test`. Let op: **lijnen, polylijnen, bogen en cirkels
+   hebben in Archicad 29 geen Element-ID**; een gevraagd ID wordt dan genegeerd (`idIgnored`), het element blijft staan.
 4. **Test: vlak met gat tekenen**: een vlak van 20 x 20 m met een gat van 6 x 6 m, rode kleur, effen vulling (als er een
    effen vulling in het project is), pen 1 voor de rand, ID `TEST-VLAK`.
 5. Zoom in Archicad naar die plek, of kies *Bewerken > Selecteren > Alle elementen op een laag* voor `PDOK_test`. Kijk of

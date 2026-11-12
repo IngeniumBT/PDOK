@@ -169,7 +169,8 @@ const knop = {
     const lijst = s.elements.map((e, i) => ({elementId: e.elementId, details: {layerIndex: laag, id: 'TEST-' + (i + 1)}}));
     const p = await stap('Zetten', 'SetDetailsOfElements', {elementsWithDetails: lijst}); if (!p) return;
     const ok = p.executionResults.filter(r => r.success).length;
-    schrijf('Op laag PDOK_test (index ' + laag + ') gezet: ' + ok + ' van ' + lijst.length + '.' +
+    const geenId = p.executionResults.filter(r => r.idIgnored).length;
+    schrijf('Op laag PDOK_test (index ' + laag + ') gezet: ' + ok + ' van ' + lijst.length + '.' + (geenId ? ' (' + geenId + ' zonder ID: lijnen en polylijnen hebben geen Element-ID)' : '') +
             p.executionResults.filter(r => !r.success).map(r => '\n  mislukt: ' + JSON.stringify(r.error)).join(''));
   },
   b_toon: async () => {
@@ -215,11 +216,11 @@ knop.b_lijn = async () => {
   const laag = await testlaagIndex(); if (laag === null) return;
   if (!(await naarPlattegrond())) return;
   const [x, y] = xy();
-  const p = await stap('Polylijn', 'CreatePolylines', {polylinesData: [{floorInd: 0, layerIndex: laag, linePenIndex: 3, id: 'TEST-LIJN',
+  const p = await stap('Polylijn', 'CreatePolylines', {polylinesData: [{floorInd: 0, layerIndex: laag, linePenIndex: 3,
       coordinates: [{x: x, y: y}, {x: x + 20, y: y}, {x: x + 20, y: y + 10}], arcs: []}]});
   if (!p) return;
   const e = (p.elements || [])[0] || {};
-  schrijf(e.elementId ? 'Polylijn getekend op laag PDOK_test rond (' + x + ', ' + y + '), ID TEST-LIJN.' : 'Polylijn mislukt: ' + JSON.stringify(e));
+  schrijf(e.elementId ? 'Polylijn getekend op laag PDOK_test rond (' + x + ', ' + y + '). Een polylijn heeft in Archicad geen Element-ID.' : 'Polylijn mislukt: ' + JSON.stringify(e));
 };
 knop.b_vlak = async () => {
   const laag = await testlaagIndex(); if (laag === null) return;

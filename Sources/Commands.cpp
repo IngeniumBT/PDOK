@@ -460,11 +460,15 @@ private:
             return Failure (err, "Het element is niet gevonden.");
         }
 
-        // Het Element-ID eerst, apart van de rest van de wijziging.
+        // Het Element-ID eerst, apart van de rest van de wijziging. Een element zonder ID (een lijn of polylijn)
+        // weigert dat met APIERR_BADELEMENTTYPE; de rest van de wijziging gaat dan gewoon door.
+        bool idIgnored = false;
         GS::UniString id;
         if (details->Get ("id", id)) {
             err = ChangeElementId (guid, id);
-            if (err != NoError) {
+            if (err == APIERR_BADELEMENTTYPE) {
+                idIgnored = true;
+            } else if (err != NoError) {
                 return Failure (err, "Het ID van het element kon niet worden gezet.");
             }
         }
@@ -480,7 +484,11 @@ private:
                 return Failure (err, "De laag van het element kon niet worden gezet.");
             }
         }
-        return GS::ObjectState ("success", true);
+        GS::ObjectState success ("success", true);
+        if (idIgnored) {
+            success.Add ("idIgnored", true);
+        }
+        return success;
     }
 };
 
@@ -731,17 +739,22 @@ private:
             return ErrorResponse (err, GS::UniString (Description ()) + " kon niet worden aangemaakt.");
         }
 
+        // Het ID zetten gebeurt na het aanmaken. Lijnen, polylijnen, bogen, cirkels en splines hebben in Archicad geen
+        // Element-ID (APIERR_BADELEMENTTYPE): dat is geen reden om het element te verwijderen; het wordt gemeld.
+        GS::ObjectState created = ElementIdObject (element.header.guid);
         GS::UniString id;
         if (item.Get ("id", id) && !id.IsEmpty ()) {
             err = ChangeElementId (element.header.guid, id);
-            if (err != NoError) {
+            if (err == APIERR_BADELEMENTTYPE) {
+                created.Add ("idIgnored", true);
+            } else if (err != NoError) {
                 GS::Array<API_Guid> unfinished;
                 unfinished.Push (element.header.guid);
                 ACAPI_Element_Delete (unfinished);
                 return ErrorResponse (err, GS::UniString ("Het ID van ") + Description () + " kon niet worden gezet; het element is weer verwijderd.");
             }
         }
-        return ElementIdObject (element.header.guid);
+        return created;
     }
 };
 
