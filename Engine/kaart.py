@@ -124,7 +124,9 @@ TIJDSLIMIET = (10, 900)   # seconden: (verbinden, wachten op een antwoord van Ar
 NAMESPACE = "PDOKImport"   # de opdrachten van de add-on zelf (niet meer van Tapir)
 
 # Wat de add-on al kan. Wat nog niet beschikbaar is, wordt in de pagina uitgeschakeld en overgeslagen.
-BESCHIKBAAR = {"tekst": True, "gebouwen": True, "terrein": False, "bomen": True}
+BESCHIKBAAR = {"tekst": True, "gebouwen": True, "terrein": True, "bomen": True}
+ADDON = True          # de motor draait in de add-on: de terreincode slaat de controles over die voor Tapir waren
+SKIRT_BEKEND = True   # de add-on zet skirtLevel rechtstreeks: een diepte onder het referentievlak (level)
 
 
 def zet_archicad_poort(poort):
@@ -854,11 +856,25 @@ BOMEN_VOORTGANG = {"binnen": None}
 
 
 def importeer_terrein_uit_venster(gebied, naadsluiting=True, overslaan=""):
-    if not BESCHIKBAAR["terrein"] or terrein is None:
-        print("\n3D-terrein is nog niet beschikbaar in de add-on (de opdracht voor meshes volgt).")
+    if terrein is None:
+        print("3D-terrein overgeslagen: terrein.py ontbreekt.")
+        return 0
+    if GEOREFERENTIE != "rd":
+        print('3D-terrein overgeslagen: zet GEOREFERENTIE in kaart.py op "rd".')
+        return 0
+    if not BESCHIKBAAR["terrein"]:
+        print("\n3D-terrein is nog niet beschikbaar in de add-on.")
         return 0
     print("\n=== 3D-terrein ===")
-    return 0
+    try:
+        sla_over = [d.strip() for d in str(overslaan).replace("\n", ";").split(";") if d.strip()]
+        if sla_over:
+            print("Typen die worden overgeslagen:", ", ".join(sla_over))
+        return terrein.importeer_terrein(sys.modules[__name__], gebied, naadsluiting=naadsluiting,
+                                         sla_over=sla_over)
+    except Exception as fout:
+        print("3D-terrein importeren mislukt:", fout)
+        return 0
 
 
 SERVER = {"poort": SERVER_POORT}
@@ -1091,9 +1107,10 @@ PAGINA = """<!DOCTYPE html>
  input[type=text]{width:100%;box-sizing:border-box;padding:6px}
  #plannaam{font-size:14px;margin:6px 0;word-break:break-all}
  button{margin-top:8px;padding:8px;width:100%}
- .compact{width:auto;flex:1 1 auto;margin:4px 0 0;padding:3px 8px;font-size:12px}
- .rij input[type=text]{flex:1 1 auto;min-width:0;width:auto}
- .rij .compact{margin-top:0}
+ .compact{width:auto;flex:1 1 auto;margin:0;padding:3px 8px;font-size:12px}
+ .bedien{display:flex;flex-direction:column;gap:6px;margin:0 0 6px}
+ .bedien .rij{gap:6px;flex-wrap:wrap}
+ .bedien input[type=text]{flex:1 1 auto;min-width:0;width:auto}
  .rij{display:flex;gap:8px}
  #lagen{font-size:14px}
  .groep{background:#fff;border:1px solid #ccc;padding:6px;margin:6px 0}
@@ -1109,14 +1126,16 @@ PAGINA = """<!DOCTYPE html>
 <div style="position:fixed;right:6px;bottom:4px;font-size:11px;z-index:5"><a href="/test">testpaneel</a></div>
 <div id="paneel">
  <h3>PDOK naar Archicad <span style="float:right;font-weight:normal"><button id="kleiner" title="Kleinere tekst in dit paneel" style="width:auto;margin:0;padding:1px 8px">A-</button> <button id="groter" title="Grotere tekst in dit paneel" style="width:auto;margin:0;padding:1px 8px">A+</button></span></h3>
- <div class="rij">
-  <input type="text" id="adres" placeholder="Zoek een adres...">
-  <button id="zoek" class="compact">Zoeken</button>
- </div>
- <div class="rij" style="flex-wrap:wrap">
-  <button id="heelnl" class="compact" title="Toon heel Nederland">Kaart uitzoomen</button>
-  <button id="teken" class="compact" title="Teken het importgebied door een rechthoek over de kaart te slepen">Gebied tekenen</button>
-  <button id="extern" class="compact" style="display:none" title="Open deze kaart in je gewone browser, bijvoorbeeld om een bestand te kiezen">Openen in browser</button>
+ <div class="bedien">
+  <div class="rij">
+   <input type="text" id="adres" placeholder="Zoek een adres...">
+   <button id="zoek" class="compact">Zoeken</button>
+  </div>
+  <div class="rij">
+   <button id="heelnl" class="compact" title="Toon heel Nederland">Kaart uitzoomen</button>
+   <button id="teken" class="compact" title="Teken het importgebied door een rechthoek over de kaart te slepen">Gebied tekenen</button>
+   <button id="extern" class="compact" style="display:none" title="Open deze kaart in je gewone browser, bijvoorbeeld om een bestand te kiezen">Openen in browser</button>
+  </div>
  </div>
  <p class="klein">Teken je importgebied: klik op <b>Gebied tekenen</b> en sleep een rechthoek over de kaart, of houd <b>Shift</b> ingedrukt
  en sleep. Zonder dat verschuift slepen de kaart. Maximaal __MAX_ZIJDE__ x __MAX_ZIJDE__ m; een gebied groter dan 600 m wordt

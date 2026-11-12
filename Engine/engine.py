@@ -85,6 +85,7 @@ button{padding:5px 10px;margin:2px 6px 2px 0}
  <input id="objnaam" value="Boom stedenbouw 02" size="22"> op hoogte z <input id="z0" value="0" size="6"> m
  <button id="b_obj">Test: object plaatsen</button>
  <button id="b_morph">Test: morph (blok) maken</button>
+ <button id="b_mesh">Test: mesh (terrein) maken</button>
 </div>
 <div class="klein">Om de laatste vier te proberen: teken in Archicad zelf een lijn of een ander element, selecteer het, en kies
  "Selectie op de testlaag zetten". Het krijgt dan de laag PDOK_test en het ID TEST-1, TEST-2...</div>
@@ -258,6 +259,23 @@ knop.b_morph = async () => {
   const p = await stap('Morph', 'CreateMorphs', {morphsData: [{basePoint: {x: x + 60, y: y, z: z}, body: body, layerIndex: laag, id: 'TEST-MORPH'}]}); if (!p) return;
   const e = (p.elements || [])[0] || {};
   schrijf(e.elementId ? 'Morph (blok 10 x 10 x 8 m, dak en muren met eigen oppervlak) geplaatst op (' + (x + 60) + ', ' + y + ') op hoogte ' + z + ' m, ID TEST-MORPH.' : 'Morph mislukt: ' + JSON.stringify(e.error || e));
+};
+knop.b_mesh = async () => {
+  const laag = await testlaagIndex(); if (laag === null) return;
+  const [x, y] = xy(); const z = parseFloat(document.getElementById('z0').value) || 0;
+  const weg = await stap('Oppervlak weg', 'EnsureSurface', {name: 'PDOK_weg', ambientReflection: 70, diffuseReflection: 90, specularReflection: 8,
+      surfaceColor: {red: 0.33, green: 0.33, blue: 0.35}}); if (!weg) return;
+  const x0 = x + 90, y0 = y, h = (dx, dy) => z + 0.05 * dx + 0.02 * dy;       // een licht hellend terrein
+  const punt = (dx, dy) => ({x: x0 + dx, y: y0 + dy, z: h(dx, dy)});
+  const mesh = {
+    polygonCoordinates: [punt(0, 0), punt(20, 0), punt(20, 20), punt(0, 20)],
+    holes: [{polygonCoordinates: [punt(8, 8), punt(12, 8), punt(12, 12), punt(8, 12)]}],
+    sublines: [{coordinates: [punt(5, 15)]}, {coordinates: [punt(15, 5)]}],
+    level: 0, floorIndex: 0, skirtType: 'SolidBodyWithSkirt', skirtLevel: -(z - 1.0),
+    showLines: true, topMaterial: {overridden: true, attributeId: weg.attributeId}, layerIndex: laag, id: 'TEST-MESH'};
+  const p = await stap('Mesh', 'CreateMeshes', {meshesData: [mesh]}); if (!p) return;
+  const e = (p.elements || [])[0] || {};
+  schrijf(e.elementId ? 'Mesh (20 x 20 m, met een gat en twee hoogtepunten, een licht hellend vlak met oppervlak PDOK_weg en een onderkant op ' + (z - 1.0).toFixed(1) + ' m) geplaatst op (' + x0 + ', ' + y0 + '), ID TEST-MESH.' : 'Mesh mislukt: ' + JSON.stringify(e.error || e));
 };
 knop.b_basis = async () => {
   schrijf('--- basistests ---');

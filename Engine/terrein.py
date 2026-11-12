@@ -2386,6 +2386,10 @@ def kies_skirtmodel(metingen, z):
 def kalibreer_skirt(k, skirt_type, z=50.0):
     """Maakt tijdelijke testmeshes met verschillende skirtLevel-waarden, leest de onderkant van hun lichaam terug en
     leidt af hoe skirtLevel werkt. Geeft (naam, functie) of None. De testmeshes worden altijd verwijderd."""
+    if getattr(k, "SKIRT_BEKEND", False):
+        naam, (_onderkant, niveau) = next(iter(SKIRT_MODELLEN.items()))
+        print(f"   skirtLevel is {naam} (vast model van de add-on, geen ijking nodig).")
+        return naam, niveau
     x0, y0 = 1000.0, 1000.0
     vierkant = [{"x": x0, "y": y0, "z": z}, {"x": x0 + 4, "y": y0, "z": z},
                 {"x": x0 + 4, "y": y0 + 4, "z": z}, {"x": x0, "y": y0 + 4, "z": z}]
@@ -2729,7 +2733,11 @@ def _teken(meshes, opties):
             run["ids"].add(mid_)
             run["objecten"].update((mid_, basis_id(mid_)))
     # oppervlakken: zijn ze bij het aanmaken toegekend? Zo niet, dan via de favorieten (als die er zijn)
-    if gemaakt and opties.get("materialen", True):
+    if gemaakt and opties.get("materialen", True) and getattr(kaart, "ADDON", False):
+        if direct["guid"]:
+            typen_gemaakt = sorted({t for t, _, _ in gemaakt if t in TERREIN_OPPERVLAKKEN})
+            print("Oppervlakken direct bij het aanmaken toegekend: " + ", ".join(favorietnaam(t) for t in typen_gemaakt))
+    elif gemaakt and opties.get("materialen", True):
         typen_gemaakt = sorted({t for t, _, _ in gemaakt if t in TERREIN_OPPERVLAKKEN})
         direct_ok = set()
         if direct["guid"] and (not direct["geweigerd"] or direct["bm_aan"]):

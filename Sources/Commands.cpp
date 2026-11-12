@@ -1560,6 +1560,207 @@ protected:
     }
 };
 
+
+// ================================================================== groep 3 (deel 3): meshes (terrein)
+
+// Een geheugenblok reserveren, of vergroten als het er al is (de standaardwaarden van een mesh brengen er al mee).
+template <class T>
+void EnsureHandle (T**& handle, size_t bytes)
+{
+    handle = reinterpret_cast<T**> (handle == nullptr ? BMAllocateHandle (bytes, ALLOCATE_CLEAR, 0)
+                                                      : BMReallocHandle (reinterpret_cast<GSHandle> (handle), bytes, REALLOC_CLEAR, 0));
+}
+
+// De omtrek van een mesh (met een hoogte z per punt) en zijn gaten. Naar Tapirs BuildMeshPolyMemoFromGeometry en AddPolyToMemo:
+// de punten beginnen bij index 1, elke contour (de buitenrand en elk gat) herhaalt zijn eerste punt als sluitpunt, en
+// meshPolyZ bevat de hoogte van elk punt.
+bool BuildMeshPolygon (const GS::Array<GS::ObjectState>& outlineIn, const GS::Array<GS::ObjectState>& holes, API_Element& element, API_ElementMemo& memo)
+{
+    const GS::Array<GS::ObjectState> outline = OpenOutline (outlineIn);
+    GS::Array<GS::Array<GS::ObjectState>> holeList;
+    Int32 nCoords = static_cast<Int32> (outline.GetSize ()) + 1;
+    for (const GS::ObjectState& hole : holes) {
+        GS::Array<GS::ObjectState> holeCoordinates;
+        if (HoleCoordinates (hole, holeCoordinates) && holeCoordinates.GetSize () >= 3) {
+            nCoords += static_cast<Int32> (holeCoordinates.GetSize ()) + 1;
+            holeList.Push (holeCoordinates);
+        }
+    }
+    const Int32 nSubPolys = 1 + static_cast<Int32> (holeList.GetSize ());
+
+    element.mesh.poly.nCoords = nCoords;
+    element.mesh.poly.nSubPolys = nSubPolys;
+    element.mesh.poly.nArcs = 0;
+
+    EnsureHandle (memo.coords, (nCoords + 1) * sizeof (API_Coord));
+    EnsureHandle (memo.meshPolyZ, (nCoords + 1) * sizeof (double));
+    EnsureHandle (memo.pends, (nSubPolys + 1) * sizeof (Int32));
+    if (memo.parcs != nullptr) {
+        BMKillHandle (reinterpret_cast<GSHandle*> (&memo.parcs));
+        memo.parcs = nullptr;
+    }
+    if (memo.vertexIDs != nullptr) {
+        EnsureHandle (memo.vertexIDs, (nCoords + 1) * sizeof (UInt32));
+    }
+    if (memo.coords == nullptr || memo.meshPolyZ == nullptr || memo.pends == nullptr) {
+        return false;
+    }
+
+    Int32 iCoord = 1;
+    Int32 iPends = 1;
+    auto writeContour = [&] (const GS::Array<GS::ObjectState>& contour) {
+        const Int32 start = iCoord;
+        for (const GS::ObjectState& c : contour) {
+            (*memo.coords)[iCoord] = Coordinate2D (c);
+            double z = 0.0;
+            c.Get ("z", z);
+            (*memo.meshPolyZ)[iCoord] = z;
+            ++iCoord;
+        }
+        (*memo.coords)[iCoord] = (*memo.coords)[start];            // het sluitpunt
+        (*memo.meshPolyZ)[iCoord] = (*memo.meshPolyZ)[start];
+        (*memo.pends)[iPends++] = iCoord;
+        ++iCoord;
+    };
+    writeContour (outline);
+    for (const GS::Array<GS::ObjectState>& holeCoordinates : holeList) {
+        writeContour (holeCoordinates);
+    }
+    return true;
+}
+
+// De extra hoogtepunten (sublines) binnen de mesh. Naar Tapirs BuildMeshSublinesMemoFromGeometry.
+void BuildMeshSublines (const GS::Array<GS::ObjectState>& sublines, API_Element& element, API_ElementMemo& memo)
+{
+    Int32 totalCoords = 0;
+    Int32 lineCount = 0;
+    for (const GS::ObjectState& subline : sublines) {
+        GS::Array<GS::ObjectState> coordinates;
+        if (subline.Get ("coordinates", coordinates) && !coordinates.IsEmpty ()) {
+            totalCoords += static_cast<Int32> (coordinates.GetSize ());
+            ++lineCount;
+        }
+    }
+    element.mesh.levelLines.nCoords = totalCoords;
+    element.mesh.levelLines.nSubLines = lineCount;
+
+    EnsureHandle (memo.meshLevelCoords, totalCoords * sizeof (API_MeshLevelCoord));
+    EnsureHandle (memo.meshLevelEnds, lineCount * sizeof (Int32));
+
+    Int32 iCoord = 0;
+    Int32 iLine = 0;
+    for (const GS::ObjectState& subline : sublines) {
+        GS::Array<GS::ObjectState> coordinates;
+        if (!subline.Get ("coordinates", coordinates) || coordinates.IsEmpty ()) {
+            continue;
+        }
+        for (const GS::ObjectState& c : coordinates) {
+            (*memo.meshLevelCoords)[iCoord].c = Coordinate3D (c);
+            ++iCoord;
+        }
+        (*memo.meshLevelEnds)[iLine++] = iCoord;
+    }
+}
+
+// Een oppervlak van een mesh: {overridden, attributeId: {guid}}. Overridden false laat het oppervlak van het gereedschap staan.
+bool ReadOverriddenSurface (const GS::ObjectState& item, const char* key, API_OverriddenAttribute& target, GS::UniString& errorOut)
+{
+    GS::ObjectState materialOs;
+    if (!item.Get (key, materialOs)) {
+        return true;
+    }
+    bool overridden = true;
+    materialOs.Get ("overridden", overridden);
+    if (!overridden) {
+        target = API_OverriddenAttribute ();
+        return true;
+    }
+    GS::ObjectState attributeId;
+    API_AttributeIndex index = APIInvalidAttributeIndex;
+    if (!materialOs.Get ("attributeId", attributeId) || !ResolveAttributeIndex (attributeId, API_MaterialID, index)) {
+        errorOut = GS::UniString ("Het oppervlak in ") + key + " bestaat niet in dit project.";
+        return false;
+    }
+    target = index;
+    return true;
+}
+
+// ---- CreateMeshes {meshesData: [{polygonCoordinates: [{x, y, z}], holes?: [{polygonCoordinates}], sublines?: [{coordinates: [{x, y, z}]}],
+//      level?, floorIndex?, skirtType?, skirtLevel?, ridges?, showLines?, contourPen?, levelPen?, topMaterial?, sideMaterial?,
+//      bottomMaterial?, layerIndex?, id?}]}
+class CreateMeshesCommand final : public Create2DCommand
+{
+public:
+    virtual GS::String GetName () const override { return "CreateMeshes"; }
+
+protected:
+    virtual const char*     ArrayField () const override { return "meshesData"; }
+    virtual const char*     UndoText () const override { return "PDOK Import: meshes maken"; }
+    virtual API_ElemTypeID  TypeId () const override { return API_MeshID; }
+    virtual GS::UniString   Description () const override { return "De mesh"; }
+
+    virtual GS::Optional<GS::ObjectState> Fill (API_Element& element, API_ElementMemo& memo, const GS::ObjectState& item) const override
+    {
+        item.Get ("floorIndex", element.header.floorInd);
+        item.Get ("level", element.mesh.level);
+        item.Get ("skirtLevel", element.mesh.skirtLevel);
+
+        GS::UniString skirtType;
+        if (item.Get ("skirtType", skirtType)) {
+            if (skirtType == "SurfaceOnlyWithoutSkirt") {
+                element.mesh.skirt = 3;
+            } else if (skirtType == "WithSkirt") {
+                element.mesh.skirt = 2;
+            } else if (skirtType == "SolidBodyWithSkirt") {
+                element.mesh.skirt = 1;
+            }
+        }
+        GS::UniString ridges;
+        if (item.Get ("ridges", ridges)) {
+            if (ridges == "AllSharp") {
+                element.mesh.smoothRidges = APIRidge_AllSharp;
+            } else if (ridges == "AllSmooth") {
+                element.mesh.smoothRidges = APIRidge_AllSmooth;
+            } else if (ridges == "UserDefined") {
+                element.mesh.smoothRidges = APIRidge_UserSharp;
+            }
+        }
+        bool showLines = false;
+        if (item.Get ("showLines", showLines)) {
+            element.mesh.showLines = showLines ? 1 : 0;
+        }
+        short pen = 0;
+        if (item.Get ("contourPen", pen) && pen > 0) {
+            element.mesh.contPen = pen;
+        }
+        if (item.Get ("levelPen", pen) && pen > 0) {
+            element.mesh.levelPen = pen;
+        }
+
+        GS::Array<GS::ObjectState> coordinates;
+        GS::Array<GS::ObjectState> holes;
+        item.Get ("polygonCoordinates", coordinates);
+        item.Get ("holes", holes);
+        if (OpenOutline (coordinates).GetSize () < 3) {
+            return ErrorResponse (APIERR_BADPARS, "polygonCoordinates moet minstens 3 punten bevatten.");
+        }
+        if (!BuildMeshPolygon (coordinates, holes, element, memo)) {
+            return ErrorResponse (APIERR_MEMFULL, "Het geheugen voor de omtrek van de mesh kon niet worden gereserveerd.");
+        }
+        GS::Array<GS::ObjectState> sublines;
+        item.Get ("sublines", sublines);
+        BuildMeshSublines (sublines, element, memo);
+
+        GS::UniString surfaceError;
+        if (!ReadOverriddenSurface (item, "topMaterial", element.mesh.topMat, surfaceError) ||
+            !ReadOverriddenSurface (item, "sideMaterial", element.mesh.sideMat, surfaceError) ||
+            !ReadOverriddenSurface (item, "bottomMaterial", element.mesh.botMat, surfaceError)) {
+            return ErrorResponse (APIERR_BADPARS, surfaceError);
+        }
+        return {};
+    }
+};
+
 // ---- GetSelectedElements -> {elements: [{elementId}]}
 class GetSelectedElementsCommand final : public CommandBase
 {
@@ -1621,6 +1822,7 @@ GSErrCode RegisterAll ()
     err |= Register<CreateTextsCommand> ();
     err |= Register<EnsureSurfaceCommand> ();
     err |= Register<CreateMorphsCommand> ();
+    err |= Register<CreateMeshesCommand> ();
     return err;
 }
 
