@@ -10,6 +10,10 @@ Eén `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat ee
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.10.1: de aansluiting van gebieden.** Een object dat de gebiedsrand kruist (een lange weg) werd bij een klein gebied afgeknipt;
+  een aangrenzende import sloeg het daarna over omdat het ID er al stond, en zo ontstonden witte delen. Nu wordt een object dat het
+  gebied raakt als geheel gemaakt. Nieuw: de knoppen **Terreincontrole** (vergelijkt Archicad met de bron en meldt wat ontbreekt of
+  afwijkt) en **Terrein wissen**. Het lezen van ID's is ook sneller.
 - **0.10.0:** het **logo van Ingenium** in de kop van het paneel (klein, met doorzichtige achtergrond), de keuze voor de **onderkant
   van het terrein** (als volume, met zijvlakken of alleen het bovenvlak) en de **diepte** onder het laagste punt, en het **lezen van
   meshes** (omtrek met hoogtes, gaten, niveau en skirt). Daardoor sluit een nieuwe terreinimport met naadsluiting aan op meshes
@@ -74,6 +78,8 @@ Archicad: **PDOK Import > PDOK Import openen...**. Het palet toont nu de **kaart
    oppervlak, op vier lagen `3D_terrein_*` in de map PDOK Import, met een onderkant (skirt) 1 m onder het laagste punt. De
    naadsluiting werkt binnen een import en sluit nu ook aan op meshes van een eerdere import. Begin met een
    klein gebied (ongeveer 300 x 300 m). Het testpaneel heeft **Test: mesh (terrein) maken**.
+   **Let op bij een update van 0.10.0 of eerder:** de meshes die je al hebt zijn afgeknipt en worden niet vanzelf aangevuld. Klik op
+   **Terreincontrole** (met een getekend gebied) om te zien wat er ontbreekt, dan op **Terrein wissen** (twee klikken) en importeer opnieuw.
    Onder *Terrein* kies je de **onderkant** (volume, zijvlakken of alleen het bovenvlak) en de **diepte** in meter.
    Controleer in 3D of de gebouwen op het terrein staan. Test de aansluiting door een tweede, aangrenzend gebied te importeren:
    de vlakken langs de grens horen dezelfde hoogte te hebben.

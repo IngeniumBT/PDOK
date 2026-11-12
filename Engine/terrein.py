@@ -118,6 +118,7 @@ GAT_TOL = 0.001             # m: een gatpunt binnen deze afstand van de rand of 
 GAT_UITBUIGING = 0.02       # m: zoveel schuiven we een rakend gatpunt naar het midden van zijn gat
 VLAK_TOLERANTIE = 0.02      # m, binnen deze spreiding in hoogte is een object vlak (geen binnenpunten)
 MAX_PUNTEN_PER_AANROEP = 4000
+MAX_HELE_OBJECT = 60000     # een object met meer driehoeken wordt bij een klein gebied afgeknipt tot het gebied
 SKIRT_TYPEN = {"oppervlak": "SurfaceOnlyWithoutSkirt", "zijvlakken": "WithSkirt", "volume": "SolidBodyWithSkirt"}
 STANDAARD_SKIRT = "volume"
 STANDAARD_DIEPTE = 1.0      # m onder het laagste punt van het terrein
@@ -277,7 +278,8 @@ def lees_objecten(data, gebied, typen, met_bruggen=False, sla_over=(), alleen=No
             continue
         if sla_over and str(at.get("bgt_type") or "").strip().lower() in sla_over:
             continue
-        driehoeken = []
+        driehoeken = []          # alle driehoeken van het object
+        rakend = []              # alleen de driehoeken die het gebied raken
         for g in o.get("geometry") or []:
             for vl in D.oppervlakken_van(g):
                 if not vl or len(vl[0]) < 3:
@@ -285,12 +287,17 @@ def lees_objecten(data, gebied, typen, met_bruggen=False, sla_over=(), alleen=No
                 ring = vl[0]
                 for k in range(1, len(ring) - 1):        # een driehoek blijft een driehoek; een veelhoek wordt een waaier
                     a, b, c = ring[0], ring[k], ring[k + 1]
-                    xs = (X[a], X[b], X[c])
-                    ys = (Y[a], Y[b], Y[c])
-                    if gebied and (max(xs) < gebied[0] or min(xs) > gebied[2]
-                                   or max(ys) < gebied[1] or min(ys) > gebied[3]):
-                        continue
                     driehoeken.append((a, b, c))
+                    if gebied:
+                        xs = (X[a], X[b], X[c])
+                        ys = (Y[a], Y[b], Y[c])
+                        if not (max(xs) < gebied[0] or min(xs) > gebied[2] or max(ys) < gebied[1] or min(ys) > gebied[3]):
+                            rakend.append((a, b, c))
+        if gebied:
+            # Een object dat het gebied raakt, wordt als geheel gemaakt, niet afgeknipt: zo staat het bij een volgende import
+            # van een aangrenzend gebied al compleet en blijft er geen gat langs de grens. Alleen een heel groot object
+            # (meer dan MAX_HELE_OBJECT driehoeken) wordt afgeknipt.
+            driehoeken = driehoeken if (rakend and len(driehoeken) <= MAX_HELE_OBJECT) else rakend
         if driehoeken:
             uit.append({"sleutel": sleutel, "id": str(at.get("3df_id") or sleutel), "type": t,
                         "attributen": at, "driehoeken": driehoeken, "xyz": (X, Y, Z)})
@@ -2244,7 +2251,7 @@ def bestaande_ids(k, lagen):
     ids = defaultdict(list)
     for i in range(0, len(elementen), 200):
         blok = elementen[i:i + 200]
-        d = k.tapir("GetDetailsOfElements", {"elements": blok})
+        d = k.tapir("GetDetailsOfElements", {"elements": blok, "withDetails": False})
         for e, it in zip(blok, k.pak(d).get("detailsOfElements", [])):
             if isinstance(it, dict) and it.get("layerIndex") in lagen and it.get("id"):
                 ids[it["id"]].append(e)
@@ -2279,7 +2286,7 @@ def leegmaken(zonder_vraag=False):
     te_verwijderen = []
     for i in range(0, len(elementen), 200):
         blok = elementen[i:i + 200]
-        d = kaart.tapir("GetDetailsOfElements", {"elements": blok})
+        d = kaart.tapir("GetDetailsOfElements", {"elements": blok, "withDetails": False})
         for e, it in zip(blok, kaart.pak(d).get("detailsOfElements", [])):
             if isinstance(it, dict) and it.get("layerIndex") in lagen:
                 te_verwijderen.append(e)
@@ -2812,6 +2819,77 @@ def _teken(meshes, opties):
               f"verwijderd (zo ontstaan er geen dubbelen).")
     LAATSTE.update(gelukt=gelukt, mislukt=mislukt)
     return 0 if gelukt else 1
+
+
+def diagnose_dekking(k, gebied):
+    """Vergelijkt het terrein in Archicad met de bron (de 3D Basisvoorziening) voor het gebied en meldt wat ontbreekt of
+    afwijkt. Zo zie je of er meshes zijn overgeslagen, afgeknipt of niet gelukt. k is de kaart-module."""
+    global KAART
+    KAART = k
+    k.MAPNAAM = MAP
+    print(f"Terreincontrole voor het gebied x {gebied[0]:.0f} tot {gebied[2]:.0f}, y {gebied[1]:.0f} tot {gebied[3]:.0f}\n")
+    objecten, _ = verzamel(gebied, list(OBJECT_TYPEN), True)
+    brug = [o for o in objecten if (o["attributen"] or {}).get("hoortbijbrug")]
+    gewone = [o for o in objecten if not (o["attributen"] or {}).get("hoortbijbrug")]
+    meshes, _stat = bouw_alle_meshes(gewone, {"z": 0.0})
+    verwacht = defaultdict(lambda: {"opp": 0.0, "n": 0, "type": "", "punten": []})
+    for typ, m in meshes:
+        b = verwacht[basis_id(m["id"])]
+        b["type"] = typ
+        b["n"] += 1
+        buiten = ring_xy(m["polygonCoordinates"])
+        b["opp"] += abs(vorm_oppervlak(buiten)) - sum(abs(vorm_oppervlak(g)) for g in gaten_uit_details({"holes": m.get("holes", [])}))
+        b["punten"] += buiten
+    at = {basis_id(o["id"]): (o["attributen"] or {}) for o in gewone}
+    print(f"Bron: {len(objecten)} terreinobjecten raken het gebied; {len(brug)} daarvan horen bij een brug en worden "
+          f"standaard niet geimporteerd.")
+    # wat staat er in Archicad?
+    aanwezig = defaultdict(lambda: {"opp": 0.0, "n": 0})
+    per_type = terreinmeshes_per_type(k)
+    totaal_ac = 0
+    for typ, lijst in per_type.items():
+        for e, it in lijst:
+            totaal_ac += 1
+            m = mesh_uit_details(it)
+            if not m:
+                continue
+            a = aanwezig[basis_id(it.get("id") or "")]
+            a["n"] += 1
+            a["opp"] += abs(vorm_oppervlak(ring_xy(m["polygonCoordinates"]))) - sum(
+                abs(vorm_oppervlak(ring_xy(h["polygonCoordinates"]))) for h in m["holes"])
+    print(f"Archicad: {totaal_ac} meshes op de terreinlagen.\n")
+    ontbreekt = [(i, b) for i, b in verwacht.items() if i not in aanwezig]
+    afwijkend = [(i, b, aanwezig[i]) for i, b in verwacht.items()
+                 if i in aanwezig and abs(aanwezig[i]["opp"] - b["opp"]) > max(0.5, 0.01 * b["opp"])]
+    print(f"Ontbrekend in Archicad: {len(ontbreekt)} objecten ({sum(b['opp'] for _, b in ontbreekt):.0f} m2).")
+    per = defaultdict(lambda: [0, 0.0])
+    for _, b in ontbreekt:
+        per[b["type"]][0] += 1
+        per[b["type"]][1] += b["opp"]
+    for typ, (n, opp) in sorted(per.items()):
+        print(f"   {typ}: {n} objecten, {opp:.0f} m2")
+    for i, b in sorted(ontbreekt, key=lambda x: -x[1]["opp"])[:8]:
+        xs = [p[0] for p in b["punten"]]
+        ys = [p[1] for p in b["punten"]]
+        print(f"   {i} ({b['type']}, {at.get(i, {}).get('bgt_type') or '-'}): {b['opp']:.0f} m2 rond "
+              f"({(min(xs) + max(xs)) / 2:.0f}, {(min(ys) + max(ys)) / 2:.0f})")
+    print(f"\nAfwijkende vorm (oppervlakte in Archicad wijkt meer dan 1% af van de bron): {len(afwijkend)} objecten.")
+    for i, b, a in sorted(afwijkend, key=lambda x: -abs(x[1]["opp"] - x[2]["opp"]))[:8]:
+        print(f"   {i}: bron {b['opp']:.0f} m2, Archicad {a['opp']:.0f} m2 "
+              f"({'afgeknipt bij een eerdere import?' if a['opp'] < b['opp'] else 'groter dan de bron'})")
+    dubbel = [i for i, a in aanwezig.items() if a["n"] > (verwacht[i]["n"] if i in verwacht else 1)]
+    if dubbel:
+        print(f"\nLET OP: {len(dubbel)} objecten staan dubbel in Archicad (bijvoorbeeld {', '.join(dubbel[:3])}).")
+    print("\nBeoordeling: " + ("het terrein in dit gebied is compleet." if not ontbreekt and not afwijkend else
+          "er ontbreekt of wijkt iets af. Wis het terrein (knop 'Terrein wissen') en importeer het gebied opnieuw."))
+    return 0
+
+
+def wis_terrein(k):
+    """Verwijdert alle meshes op de terreinlagen (voor het kaartvenster)."""
+    global KAART
+    KAART = k
+    return leegmaken(zonder_vraag=True)
 
 
 def importeer_terrein(k, gebied, oppervlakken=True, naadsluiting=True, sla_over=(), skirt=None, diepte=None):

@@ -367,6 +367,24 @@ class Handler(BasisHandler):
             except Exception as fout:  # noqa: BLE001
                 antwoord = {"succeeded": False, "error": {"message": type(fout).__name__ + ": " + str(fout)}}
             self._stuur(200, json.dumps(antwoord), "application/json")
+        elif pad in ("/terreincontrole", "/terreinwissen"):
+            import contextlib
+            import io
+            lengte = int(self.headers.get("Content-Length") or 0)
+            body = self.rfile.read(lengte) if lengte else b"{}"
+            uit = io.StringIO()
+            try:
+                if kaart is None or getattr(kaart, "terrein", None) is None:
+                    raise RuntimeError("het terreinonderdeel is niet geladen")
+                with contextlib.redirect_stdout(uit):
+                    if pad == "/terreincontrole":
+                        g = json.loads(body.decode("utf-8") or "{}")
+                        kaart.terrein.diagnose_dekking(kaart, (g["xmin"], g["ymin"], g["xmax"], g["ymax"]))
+                    else:
+                        kaart.terrein.wis_terrein(kaart)
+            except Exception as fout:  # noqa: BLE001
+                uit.write("\nMislukt: " + type(fout).__name__ + ": " + str(fout))
+            self._stuur(200, json.dumps({"tekst": uit.getvalue()}), "application/json")
         elif kaart is None:
             self._stuur(500, json.dumps({"fout": "het onderdeel met de kaart is niet geladen"}), "application/json")
         else:

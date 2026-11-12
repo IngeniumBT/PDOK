@@ -1159,6 +1159,11 @@ PAGINA = """<!DOCTYPE html>
    <select id="drie_skirt" style="flex:1 1 auto;min-width:0"><option value="volume" selected>als volume (massief)</option><option value="zijvlakken">met zijvlakken</option><option value="oppervlak">alleen het bovenvlak</option></select>
    <input type="text" id="drie_diepte" value="1" title="Diepte van de onderkant onder het laagste punt, in meter" style="flex:0 0 52px;width:52px"> <span class="klein">m</span>
   </div>
+  <div class="rij" style="margin:6px 0">
+   <button id="drie_controle" class="compact" title="Vergelijkt het terrein in Archicad met de bron voor het getekende gebied en meldt wat ontbreekt">Terreincontrole</button>
+   <button id="drie_wis" class="compact" title="Verwijdert alle meshes op de PDOK-terreinlagen (Ongedaan maken in Archicad brengt ze terug)">Terrein wissen</button>
+  </div>
+  <pre id="drie_uit" class="klein" style="display:none;white-space:pre-wrap;max-height:260px;overflow:auto;background:#fff;border:1px solid #ccc;padding:6px;margin:0 0 6px"></pre>
   <label><input type="checkbox" id="drie_bomen"> Bomen (BGT-vegetatiepunten, als 3D-object op het terrein)</label>
   <input type="text" id="drie_boomobject" value="Boom stedenbouw 02" placeholder="Naam van het bibliotheekobject">
   <div class="klein">Het eerste keer ophalen kan een minuut duren (tegel van enkele tientallen MB). Wat al bestaat
@@ -1213,6 +1218,26 @@ zetSchaal(schaal);
 document.getElementById('kleiner').onclick = () => zetSchaal(schaal - 0.1);
 document.getElementById('groter').onclick = () => zetSchaal(schaal + 0.1);
 const BESCHIKBAAR = __BESCHIKBAAR__;
+async function terreinActie(pad, gebiedNodig) {
+  const uit = document.getElementById('drie_uit');
+  if (gebiedNodig && !gebied) { status.textContent = 'Teken eerst een gebied voor de terreincontrole.'; return; }
+  uit.style.display = 'block'; uit.textContent = 'Bezig...';
+  try {
+    const r = await fetch(pad, {method: 'POST', body: JSON.stringify(gebied || {})});
+    const d = await r.json(); uit.textContent = d.tekst || JSON.stringify(d);
+  } catch (e) { uit.textContent = 'Mislukt: ' + e; }
+}
+document.getElementById('drie_controle').onclick = () => terreinActie('/terreincontrole', true);
+const wisKnop = document.getElementById('drie_wis');
+wisKnop.onclick = () => {
+  if (!wisKnop.dataset.klaar) {                      // eerst een tweede klik: wissen kan niet per ongeluk
+    wisKnop.dataset.klaar = '1'; wisKnop.textContent = 'Klik nogmaals om te wissen';
+    setTimeout(() => { delete wisKnop.dataset.klaar; wisKnop.textContent = 'Terrein wissen'; }, 5000);
+    return;
+  }
+  delete wisKnop.dataset.klaar; wisKnop.textContent = 'Terrein wissen';
+  terreinActie('/terreinwissen', false);
+};
 function nogNiet(ids) {                                          // een onderdeel dat de add-on nog niet kan
   ids.forEach(id => {
     const e = document.getElementById(id); if (!e) return;
@@ -1223,7 +1248,7 @@ function nogNiet(ids) {                                          // een onderdee
   });
 }
 if (!BESCHIKBAAR.gebouwen) nogNiet(['drie_gebouwen', 'drie_materiaal']);
-if (!BESCHIKBAAR.terrein) nogNiet(['drie_terrein', 'drie_naad', 'drie_overslaan']);
+if (!BESCHIKBAAR.terrein) nogNiet(['drie_terrein', 'drie_naad', 'drie_overslaan', 'drie_skirt', 'drie_diepte', 'drie_controle', 'drie_wis']);
 if (!BESCHIKBAAR.tekst) nogNiet(['planteksten']);
 const MAX_ZIJDE = __MAX_ZIJDE__;
 const planInfo = document.getElementById('planinfo');

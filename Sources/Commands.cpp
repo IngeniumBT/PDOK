@@ -438,6 +438,9 @@ public:
 
         GS::Array<Int32> layerIndices;
         parameters.Get ("layerIndices", layerIndices);
+        // Met withDetails false krijg je alleen type, laag, verdieping en ID: veel sneller als je de omtrek van meshes niet nodig hebt.
+        bool withDetails = true;
+        parameters.Get ("withDetails", withDetails);
 
         GS::ObjectState response;
         const auto& list = response.AddList<GS::ObjectState> ("detailsOfElements");
@@ -460,7 +463,7 @@ public:
             detail.Add ("layerIndex", layer);
             detail.Add ("floorIndex", static_cast<Int32> (head.floorInd));
             detail.Add ("id", id);
-            detail.Add ("details", head.type.typeID == API_MeshID ? MeshDetails (guid) : GS::ObjectState ());
+            detail.Add ("details", (withDetails && head.type.typeID == API_MeshID) ? MeshDetails (guid) : GS::ObjectState ());
             list (detail);
         }
         return response;
