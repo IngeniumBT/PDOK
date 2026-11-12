@@ -17,6 +17,19 @@ endif ()
 
 SetGlobalCompilerDefinitions (${AC_VERSION})
 
+# De motor (Python + onze Python-code) wordt als bron in het .apx ingebouwd: Tools/pack_engine.py zet hem klaar
+# in Sources/python-embed.zip en Sources/engine-app.zip (zie Sources/RFIX.win/AddOnMain.rc2).
+find_package (Python COMPONENTS Interpreter REQUIRED)
+execute_process (
+    COMMAND "${Python_EXECUTABLE}" "${CMAKE_CURRENT_LIST_DIR}/Tools/pack_engine.py"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}"
+    RESULT_VARIABLE PackEngineResult
+)
+if (NOT PackEngineResult EQUAL 0)
+    message (FATAL_ERROR "Tools/pack_engine.py is mislukt (zie de regels hierboven).")
+endif ()
+set_property (DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/Engine/engine.py")
+
 # Het bestand dat de gebruiker in Archicad toevoegt: PDOKImport_AC29.apx
 set (AddOnName "PDOKImport_AC${AC_VERSION}")
 

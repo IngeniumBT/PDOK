@@ -3,3 +3,9 @@
 #include "AddOnVersion.rc2"
 
 1	ICON    LOADONCALL MOVEABLE IMPURE  ACAP.ico
+
+// De motor, ingebouwd in het .apx (door Tools/pack_engine.py klaargezet in de map Sources):
+//   2000: de officiele 'embeddable' Python van python.org
+//   2001: onze eigen Python-code uit de map Engine
+2000	RCDATA	"python-embed.zip"
+2001	RCDATA	"engine-app.zip"

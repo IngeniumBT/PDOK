@@ -1,57 +1,50 @@
-# PDOK Import - Archicad Add-On (skelet)
+# PDOK Import - Archicad Add-On
 
-Dit is het **skelet** van de add-on: één menu "PDOK Import" met de opdracht "Over PDOK Import...", die een melding
-toont. Het enige doel is te bewijzen dat de hele keten werkt (bouwen met GitHub, het `.apx` toevoegen in de
-Add-On Manager, het menu in Archicad). De echte functies komen er daarna in.
+E�n `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat een **motor** (Python, ingebouwd in het
+`.apx`) en toont de kaart in een **palet in Archicad**.
 
-## Stap 1: een GitHub-repository maken
+## Stand van zaken
 
-1. Ga op github.com naar **New repository** (de groene knop of het plusje rechtsboven).
-2. Naam bijvoorbeeld `pdok-import-archicad`. Kies *Private* of *Public*. Laat de rest leeg. **Create repository**.
+- **Versie 0.1:** skelet (menu en melding). Gelukt.
+- **Versie 0.2 (stap A):** de motor zit in het `.apx`, wordt bij het eerste gebruik uitgepakt en gestart, en een testpagina
+  met kaart staat in een palet. De echte kaart en import komen in de volgende stappen.
 
-## Stap 2: de bestanden uploaden
+## Een nieuwe versie bouwen (zoals je al deed)
 
-1. Pak de ZIP uit. Je krijgt een map met o.a. `Sources`, `Tools`, `CMakeLists.txt` en een map `.github`.
-2. Klik in je nieuwe, lege repository op **uploading an existing file**.
-3. **Sleep de inhoud van de uitgepakte map** (alle mappen en bestanden, ook `.github`) in het venster.
-   Gebruik slepen en niet "choose your files": dat neemt geen mappen mee.
-4. Controleer onderaan dat er 17 bestanden staan en klik op **Commit changes**.
-5. Controleer dat het bestand `.github/workflows/build.yml` in je repository staat. Zo niet: **Add file > Create new
-   file**, typ als naam `.github/workflows/build.yml` en plak de inhoud erin.
+1. Zet de nieuwe bestanden in je GitHub-repository: **Add file > Upload files**, en **sleep de mappen en bestanden
+   uit de update-ZIP** erin (niet de map `.github`; die blijft zoals hij is). Bestaande bestanden met dezelfde naam
+   worden vervangen. Klik **Commit changes**.
+2. Het tabblad **Actions** bouwt vanzelf. Deze bouw duurt iets langer, omdat hij ook de Python (ongeveer 10 MB)
+   downloadt en inpakt.
+3. Download onder **Artifacts** `PDOKImport_AC29_Win`, pak het uit, en vervang het oude `PDOKImport_AC29.apx`
+   (sluit Archicad eerst). Zet bij het nieuwe bestand *Blokkering opheffen* aan in de Eigenschappen.
 
-## Stap 3: laten bouwen
+## De motor
 
-1. Open het tabblad **Actions**. De bouw ("Bouw de add-on") start vanzelf na de upload (soms moet je eerst de
-   workflows toestaan: de knop *I understand my workflows, go ahead and enable them*). Je kunt hem ook
-   starten via *Bouw de add-on > Run workflow*.
-2. Het duurt ongeveer 5 tot 10 minuten. Een **groen vinkje** is gelukt, een **rood kruis** is mislukt:
-   open die run, klik op de mislukte stap, en kopieer de laatste ~40 regels (of de regels met `error`).
-3. Bij een gelukte bouw staat onderaan de runpagina onder **Artifacts** het bestand `PDOKImport_AC29_Win`.
-   Download dat: het is een ZIP met daarin `PDOKImport_AC29.apx`. Pak het uit.
+- De add-on pakt de motor eenmalig uit naar `%LOCALAPPDATA%\PDOKImport\<versie>\` (bijvoorbeeld
+  `C:\Users\jouw naam\AppData\Local\PDOKImport\0.2.0-abc1234\`) en start hem verborgen op de achtergrond.
+- De motor luistert alleen op deze computer (`127.0.0.1`) en stopt vanzelf als Archicad sluit.
+- Het **logboek** staat in dezelfde map: `engine.log`. Bij een probleem staat daar de oorzaak in.
+- Windows zoekt `tar.exe` (zit in Windows 10 en nieuwer) om het uit te pakken, en probeert anders PowerShell.
 
-## Stap 4: de add-on in Archicad laden
+## Testen (stap A)
 
-1. Klik met de rechtermuisknop op het `.apx` > **Eigenschappen**. Staat onderaan "Blokkering opheffen"
-   (*Unblock*)? Zet daar een vinkje en klik OK.
-2. Archicad: **Opties > Add-On Manager > tabblad "Edit List of Available Add-Ons" > Add**, kies het `.apx`, **OK**.
-3. Herstart Archicad als het dat vraagt. Er hoort een menu **PDOK Import** te zijn met de opdracht
-   **Over PDOK Import...**. Die toont een melding met de versie.
-
-## De MDID (belangrijk)
-
-Elke add-on heeft twee ID's, de **MDID** (developer ID en local ID), in `Sources/RFIX/AddOnFix.grc`. In dit skelet staan
-de voorbeeldwaarden `1` en `1`. Volgens de README van het Graphisoft-sjabloon werkt een add-on met die
-voorbeeldwaarden **alleen in de demoversie van Archicad**.
-
-- **Testen kan dus meteen in demo-modus**: start Archicad met `Archicad.exe -DEMO` (bijvoorbeeld via een
-  snelkoppeling met `-DEMO` achter het pad).
-- **Voor een gewone Archicad en voor verspreiding heb je eigen ID's nodig.** De README van het sjabloon verwijst
-  daarvoor naar <https://archicadapi.graphisoft.com/profile/add-ons> (aanmelden met een Graphisoft-account). Pas dan de
-  twee getallen in `AddOnFix.grc` aan en laat opnieuw bouwen (de bouw start vanzelf bij elke wijziging).
-  **Gebruik niet de ID's van een ander project** (zoals Tapir): die horen bij hun add-on.
+1. Archicad: menu **PDOK Import > PDOK Import openen...**. De eerste keer duurt dat een paar seconden (uitpakken).
+2. Er opent een palet "PDOK Import" met drie onderdelen:
+   1. **De motor:** de status en de gegevens van de motor (versie van Python, het programma, het proces-ID).
+   2. **Internet vanuit de motor:** de knop *Test verbinding met PDOK*.
+   3. **Kaart in dit palet:** een kaart met de PDOK-achtergrondkaart. Slepen verschuift de kaart; met **Shift**
+      ingedrukt teken je een rechthoek.
+3. **Over PDOK Import...** toont de versie, de poort, de map en het logboek van de motor.
 
 ## Wat je terugmeldt
 
-- Bouw: groen of rood? Zo rood: de foutregels.
-- Archicad: is de add-on geladen, verschijnt het menu, en wat toont "Over PDOK Import..."? Zo niet: welke melding
-  geeft de Add-On Manager?
+- Opent het palet, en wat staat erin? (een schermafbeelding is ideaal)
+- Staat bij onderdeel 1 "de motor draait"? Lukt de internettest? Verschijnt de kaart met tegels, en kun je met Shift een
+  rechthoek tekenen? Verschuift de kaart bij gewoon slepen?
+- Een foutmelding bij het openen? Plak de tekst, en de inhoud van `engine.log`.
+
+## MDID
+
+De ID's in `Sources/RFIX/AddOnFix.grc` zijn die van jouw account. Wijzig ze niet; laat dit bestand ook bij een update
+ongemoeid.

@@ -1,7 +1,6 @@
-// PDOK Import - Archicad Add-On (skelet).
+// PDOK Import - Archicad Add-On.
 //
-// Dit skelet bewijst alleen dat de hele keten werkt: bouwen met GitHub, het .apx toevoegen in de
-// Add-On Manager, en een menuopdracht in Archicad. De echte functies komen er daarna in.
+// Stap A: de motor (Python, ingebouwd in dit .apx) wordt gestart en de kaart staat in een palet in Archicad.
 
 #include "APIEnvir.h"
 #include "ACAPinc.h"
@@ -10,21 +9,73 @@
 #include "RS.hpp"
 #include "UniString.hpp"
 
+#include <string>
+
+#include "AddOnBuildCommit.hpp"
 #include "AddOnVersion.hpp"
 #include "ResourceIds.hpp"
+#include "EngineHost.hpp"
+#include "ImportPalette.hpp"
 
 // Het hoofdversienummer van Archicad (bijvoorbeeld 29), vastgelegd in CheckEnvironment.
 static Int32 g_archicadMainVersion = 0;
 
-static void ShowAboutAlert ()
+// De map van de motor: de versie, met de bouwcode erbij zodat elke nieuwe bouw een verse motor krijgt.
+static std::string BuildId ()
+{
+    std::string id = ADDON_VERSION;
+    const std::string commit = ADDON_BUILD_COMMIT;
+    if (!commit.empty ()) {
+        id += "-" + commit;
+    }
+    return id;
+}
+
+static GS::UniString FromUtf8 (const std::string& text)
+{
+    return GS::UniString (text.c_str (), CC_UTF8);
+}
+
+static void ShowAlert (short type, const GS::UniString& message, const GS::UniString& subMessage)
 {
     const GS::UniString title ("PDOK Import");
-    const GS::UniString message = GS::UniString ("Versie ") + ADDON_VERSION;
-    const GS::UniString subMessage = GS::UniString::Printf ("Dit is het skelet van de add-on; het werkt in Archicad %d.", static_cast<int> (g_archicadMainVersion));
     const GS::UniString ok ("OK");
     const GS::UniString none;
+    DGAlert (type, title, message, subMessage, ok, none, none);
+}
 
-    DGAlert (DG_INFORMATION, title, message, subMessage, ok, none, none);
+static void OpenImportPalette ()
+{
+    const EngineHost::StartResult engine = EngineHost::EnsureRunning (BuildId ());
+    if (!engine.ok) {
+        ShowAlert (DG_ERROR, GS::UniString ("De motor van PDOK Import kon niet worden gestart."),
+                   FromUtf8 (engine.error + "\n\nLogboek: " + engine.logPath));
+        return;
+    }
+
+    // De pagina stuurt door naar de motor (die luistert alleen op deze computer, 127.0.0.1).
+    GS::UniString html;
+    html += "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>PDOK Import</title></head>";
+    html += "<body style=\"font-family:Segoe UI,Arial,sans-serif;margin:16px\">De kaart wordt geladen...";
+    html += "<script>location.replace('http://127.0.0.1:" + GS::ValueToUniString (static_cast<Int32> (engine.port)) + "/');</script>";
+    html += "</body></html>";
+    ImportPalette::Instance ().ShowHTML (html);
+}
+
+static void ShowAbout ()
+{
+    const EngineHost::Status status = EngineHost::GetStatus ();
+
+    const GS::UniString message = GS::UniString ("Versie ") + ADDON_VERSION + " (" + FromUtf8 (BuildId ()) + ")";
+    GS::UniString subMessage = GS::UniString::Printf ("Gebouwd voor Archicad %d.", static_cast<int> (g_archicadMainVersion));
+    if (status.running) {
+        subMessage += GS::UniString ("\nDe motor draait op poort ") + GS::ValueToUniString (static_cast<Int32> (status.port)) + ".";
+        subMessage += "\nMap: " + FromUtf8 (status.folder);
+        subMessage += "\nLogboek: " + FromUtf8 (status.logPath);
+    } else {
+        subMessage += "\nDe motor is nog niet gestart (kies PDOK Import openen).";
+    }
+    ShowAlert (DG_INFORMATION, message, subMessage);
 }
 
 static GSErrCode MenuCommandHandler (const API_MenuParams* menuParams)
@@ -32,8 +83,11 @@ static GSErrCode MenuCommandHandler (const API_MenuParams* menuParams)
     switch (menuParams->menuItemRef.menuResID) {
         case ID_ADDON_MENU:
             switch (menuParams->menuItemRef.itemIndex) {
+                case ID_ADDON_MENU_OPEN:
+                    OpenImportPalette ();
+                    break;
                 case ID_ADDON_MENU_ABOUT:
-                    ShowAboutAlert ();
+                    ShowAbout ();
                     break;
             }
             break;
@@ -49,7 +103,8 @@ API_AddonType CheckEnvironment (API_EnvirParams* envir)
 
     g_archicadMainVersion = envir->serverInfo.mainVersion;
 
-    return APIAddon_Normal;
+    // Preload: de add-on blijft geladen, zodat het palet en de motor blijven bestaan.
+    return APIAddon_Preload;
 }
 
 GSErrCode RegisterInterface (void)
@@ -63,15 +118,21 @@ GSErrCode RegisterInterface (void)
 
 GSErrCode Initialize (void)
 {
-    ACAPI_WriteReport ("PDOK Import geladen.", false);
+    GSErrCode err = NoError;
 #ifdef ServerMainVers_2700
-    return ACAPI_MenuItem_InstallMenuHandler (ID_ADDON_MENU, MenuCommandHandler);
+    err |= ACAPI_MenuItem_InstallMenuHandler (ID_ADDON_MENU, MenuCommandHandler);
 #else
-    return ACAPI_Install_MenuHandler (ID_ADDON_MENU, MenuCommandHandler);
+    err |= ACAPI_Install_MenuHandler (ID_ADDON_MENU, MenuCommandHandler);
 #endif
+    err |= ImportPalette::RegisterPaletteControlCallBack ();
+    ACAPI_WriteReport ("PDOK Import geladen.", false);
+    return err;
 }
 
 GSErrCode FreeData (void)
 {
+    EngineHost::Stop ();
+    // Het palet moet worden opgeruimd terwijl de browser van Archicad nog bestaat.
+    ImportPalette::Release ();
     return NoError;
 }

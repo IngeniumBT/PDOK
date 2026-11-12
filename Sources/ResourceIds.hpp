@@ -5,4 +5,7 @@
 #define ID_ADDON_INFO_DESC                  2
 
 #define ID_ADDON_MENU                   32001
-#define ID_ADDON_MENU_ABOUT                 1
+#define ID_ADDON_MENU_OPEN                  1
+#define ID_ADDON_MENU_ABOUT                 2
+
+#define ID_IMPORT_PALETTE               32010

@@ -7,5 +7,14 @@
 
 'STR#' ID_ADDON_MENU "Add-On Menu" {
 /* [   ] */		"PDOK Import"
-/* [  1] */		"Over PDOK Import...^E3^ES^EE^EI^ED^EL^EW^ET^EM^10001"
+/* [  1] */		"PDOK Import openen...^E3^ES^EE^EI^ED^EL^EW^ET^EM^10001"
+/* [  2] */		"Over PDOK Import...^E3^ES^EE^EI^ED^EL^EW^ET^EM^10001"
+}
+
+'GDLG' ID_IMPORT_PALETTE Palette | leftCaption | close | grow   0   0  600  450  "PDOK Import"  {
+/* [  1] */ Browser                     0   0  600  450
+}
+
+'DLGH' ID_IMPORT_PALETTE PDOK_Import_Palette {
+1    ""        BrowserItem
 }
