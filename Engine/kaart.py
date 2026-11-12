@@ -855,7 +855,7 @@ def meld_voortgang_bomen(tekst, fractie=None):
 BOMEN_VOORTGANG = {"binnen": None}
 
 
-def importeer_terrein_uit_venster(gebied, naadsluiting=True, overslaan=""):
+def importeer_terrein_uit_venster(gebied, naadsluiting=True, overslaan="", skirt=None, diepte=None):
     if terrein is None:
         print("3D-terrein overgeslagen: terrein.py ontbreekt.")
         return 0
@@ -871,7 +871,7 @@ def importeer_terrein_uit_venster(gebied, naadsluiting=True, overslaan=""):
         if sla_over:
             print("Typen die worden overgeslagen:", ", ".join(sla_over))
         return terrein.importeer_terrein(sys.modules[__name__], gebied, naadsluiting=naadsluiting,
-                                         sla_over=sla_over)
+                                         sla_over=sla_over, skirt=skirt, diepte=diepte)
     except Exception as fout:
         print("3D-terrein importeren mislukt:", fout)
         return 0
@@ -982,7 +982,7 @@ def _importeer(aanvraag, deel="alles"):
     if deel == "terrein":
         return importeer_terrein_uit_venster(
             (x_min, y_min, x_max, y_max), bool(aanvraag.get("terreinnaad", True)),
-            aanvraag.get("terreinoverslaan", ""))
+            aanvraag.get("terreinoverslaan", ""), aanvraag.get("terreinskirt"), aanvraag.get("terreindiepte"))
     if GEOREFERENTIE == "rd":
         midden_x = midden_y = 0
     else:
@@ -1125,7 +1125,11 @@ PAGINA = """<!DOCTYPE html>
 </style></head><body>
 <div style="position:fixed;right:6px;bottom:4px;font-size:11px;z-index:5"><a href="/test">testpaneel</a></div>
 <div id="paneel">
- <h3>PDOK naar Archicad <span style="float:right;font-weight:normal"><button id="kleiner" title="Kleinere tekst in dit paneel" style="width:auto;margin:0;padding:1px 8px">A-</button> <button id="groter" title="Grotere tekst in dit paneel" style="width:auto;margin:0;padding:1px 8px">A+</button></span></h3>
+ <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">
+  <img src="/logo.png" alt="Ingenium - partner in bouwtechniek" title="Ingenium - partner in bouwtechniek" style="height:26px;width:auto;display:block">
+  <span><button id="kleiner" title="Kleinere tekst in dit paneel" style="width:auto;margin:0;padding:1px 8px">A-</button> <button id="groter" title="Grotere tekst in dit paneel" style="width:auto;margin:0;padding:1px 8px">A+</button></span>
+ </div>
+ <h3 style="margin:6px 0">PDOK naar Archicad</h3>
  <div class="bedien">
   <div class="rij">
    <input type="text" id="adres" placeholder="Zoek een adres...">
@@ -1149,7 +1153,12 @@ PAGINA = """<!DOCTYPE html>
   <label><input type="checkbox" id="drie_materiaal" checked> &nbsp;&nbsp;met materialen (dak, muur, grondvlak)</label><br>
   <label><input type="checkbox" id="drie_terrein"> Terrein (als Meshes, op vier lagen)</label><br>
   <label class="klein"><input type="checkbox" id="drie_naad" checked> &nbsp;&nbsp;naadsluiting (dicht spleten tussen vlakken)</label>
-  <input type="text" id="drie_overslaan" placeholder="Terreintypen overslaan, bijv. open loods; overkapping"><br>
+  <input type="text" id="drie_overslaan" placeholder="Terreintypen overslaan, bijv. open loods; overkapping">
+  <div class="rij" style="margin:6px 0;align-items:center">
+   <label class="klein" for="drie_skirt" style="flex:0 0 auto">Onderkant:</label>
+   <select id="drie_skirt" style="flex:1 1 auto;min-width:0"><option value="volume" selected>als volume (massief)</option><option value="zijvlakken">met zijvlakken</option><option value="oppervlak">alleen het bovenvlak</option></select>
+   <input type="text" id="drie_diepte" value="1" title="Diepte van de onderkant onder het laagste punt, in meter" style="flex:0 0 52px;width:52px"> <span class="klein">m</span>
+  </div>
   <label><input type="checkbox" id="drie_bomen"> Bomen (BGT-vegetatiepunten, als 3D-object op het terrein)</label>
   <input type="text" id="drie_boomobject" value="Boom stedenbouw 02" placeholder="Naam van het bibliotheekobject">
   <div class="klein">Het eerste keer ophalen kan een minuut duren (tegel van enkele tientallen MB). Wat al bestaat
@@ -1421,6 +1430,8 @@ document.getElementById('importeer').onclick = async () => {
   const terrein = document.getElementById('drie_terrein').checked;
   const terreinnaad = document.getElementById('drie_naad').checked;
   const terreinoverslaan = document.getElementById('drie_overslaan').value;
+  const terreinskirt = document.getElementById('drie_skirt').value;
+  const terreindiepte = parseFloat(String(document.getElementById('drie_diepte').value).replace(',', '.')) || 1;
   const bomen = document.getElementById('drie_bomen').checked;
   const boomobject = document.getElementById('drie_boomobject').value;
   if (!lagen.length && !plan && !gebouwen && !terrein && !bomen) {
@@ -1456,7 +1467,7 @@ document.getElementById('importeer').onclick = async () => {
   try {
     const r = await fetch('/import', {method: 'POST',
       body: JSON.stringify({...gebied, lagen, alleniveaus, pennen, plan, planteksten, perceelteksten,
-                            gebouwen, gebouwenmateriaal, terrein, terreinnaad, terreinoverslaan,
+                            gebouwen, gebouwenmateriaal, terrein, terreinnaad, terreinoverslaan, terreinskirt, terreindiepte,
                             bomen, boomobject})});
     const d = await r.json();
     if (d.fout) { status.textContent = 'Fout: ' + d.fout; return; }

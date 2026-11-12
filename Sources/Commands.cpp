@@ -353,6 +353,58 @@ public:
     }
 };
 
+// ---- de gegevens van een mesh, voor GetDetailsOfElements: de omtrek met hoogtes (gesloten, zoals Archicad hem geeft), de gaten,
+//      het niveau en de onderkant (skirt). De gaten staan als {polygonCoordinates}. Naar Tapirs GetPolygonsFromMemoCoords.
+GS::ObjectState CoordinateWithZ (const API_Coord& coordinate, double z)
+{
+    GS::ObjectState state;
+    state.Add ("x", coordinate.x);
+    state.Add ("y", coordinate.y);
+    state.Add ("z", z);
+    return state;
+}
+
+GS::ObjectState MeshDetails (const API_Guid& guid)
+{
+    GS::ObjectState details;
+    API_Element element = {};
+    element.header.guid = guid;
+    if (ACAPI_Element_Get (&element) != NoError) {
+        return details;
+    }
+    details.Add ("level", element.mesh.level);
+    details.Add ("skirtLevel", element.mesh.skirtLevel);
+    details.Add ("skirtType", GS::UniString (element.mesh.skirt == 3 ? "SurfaceOnlyWithoutSkirt" : (element.mesh.skirt == 2 ? "WithSkirt" : "SolidBodyWithSkirt")));
+    details.Add ("showLines", element.mesh.showLines != 0);
+
+    API_ElementMemo memo = {};
+    if (ACAPI_Element_GetMemo (guid, &memo, APIMemoMask_Polygon | APIMemoMask_MeshPolyZ) == NoError && memo.coords != nullptr && memo.meshPolyZ != nullptr) {
+        const GSSize contourCount = memo.pends == nullptr ? 1 : BMhGetSize (reinterpret_cast<GSHandle> (memo.pends)) / sizeof (Int32) - 1;
+        const auto& outline = details.AddList<GS::ObjectState> ("polygonCoordinates");
+        const auto& holes = details.AddList<GS::ObjectState> ("holes");
+        Int32 start = 1;
+        for (GSIndex contour = 0; contour < contourCount; ++contour) {
+            const Int32 end = memo.pends == nullptr ? static_cast<Int32> (BMhGetSize (reinterpret_cast<GSHandle> (memo.coords)) / sizeof (API_Coord)) - 1
+                                                    : (*memo.pends)[contour + 1];
+            if (contour == 0) {
+                for (Int32 i = start; i <= end; ++i) {
+                    outline (CoordinateWithZ ((*memo.coords)[i], (*memo.meshPolyZ)[i]));
+                }
+            } else {
+                GS::ObjectState hole;
+                const auto& holeCoordinates = hole.AddList<GS::ObjectState> ("polygonCoordinates");
+                for (Int32 i = start; i <= end; ++i) {
+                    holeCoordinates (CoordinateWithZ ((*memo.coords)[i], (*memo.meshPolyZ)[i]));
+                }
+                holes (hole);
+            }
+            start = end + 1;
+        }
+    }
+    ACAPI_DisposeElemMemoHdls (&memo);
+    return details;
+}
+
 // ---- GetDetailsOfElements {elements: [{elementId}]} of {types: [..], layerIndices: [..]}
 //      -> {detailsOfElements: [{elementId, type, layerIndex, floorIndex, id, details: {}}]}
 class GetDetailsOfElementsCommand final : public CommandBase
@@ -408,7 +460,7 @@ public:
             detail.Add ("layerIndex", layer);
             detail.Add ("floorIndex", static_cast<Int32> (head.floorInd));
             detail.Add ("id", id);
-            detail.Add ("details", GS::ObjectState ());
+            detail.Add ("details", head.type.typeID == API_MeshID ? MeshDetails (guid) : GS::ObjectState ());
             list (detail);
         }
         return response;

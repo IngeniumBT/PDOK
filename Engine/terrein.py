@@ -2814,7 +2814,7 @@ def _teken(meshes, opties):
     return 0 if gelukt else 1
 
 
-def importeer_terrein(k, gebied, oppervlakken=True, naadsluiting=True, sla_over=()):
+def importeer_terrein(k, gebied, oppervlakken=True, naadsluiting=True, sla_over=(), skirt=None, diepte=None):
     """Voor het kaartvenster: haalt het terrein voor het gebied (xmin, ymin, xmax, ymax in RD) op en maakt het
     aan als Meshes. naadsluiting zet de naadsluiting aan of uit; sla_over is een lijst BGT-typen (bgt_type) die
     worden overgeslagen. Maakt ook de terreinoppervlakken aan. k is de kaart-module.
@@ -2830,6 +2830,13 @@ def importeer_terrein(k, gebied, oppervlakken=True, naadsluiting=True, sla_over=
             argumenten += ["--sla-over", str(soort).strip()]
     if not oppervlakken:
         argumenten.append("--zonder-materiaal")
+    if skirt in SKIRT_TYPEN:
+        argumenten += ["--skirt", str(skirt)]
+    try:
+        if diepte is not None and float(diepte) > 0:
+            argumenten += ["--diepte", str(float(diepte))]
+    except (TypeError, ValueError):
+        pass
     hoofd(argumenten)
     return LAATSTE["gelukt"]
 

@@ -144,7 +144,7 @@ const knop = {
     const s = await stap('Selectie', 'GetSelectedElements'); if (!s) return;
     if (!(s.elements || []).length) { schrijf('Er is niets geselecteerd in Archicad.'); return; }
     const d = await stap('Details', 'GetDetailsOfElements', {elements: s.elements}); if (!d) return;
-    schrijf('Geselecteerd: ' + d.detailsOfElements.length + '\n  ' + d.detailsOfElements.map(e => e.type + ', laag ' + e.layerIndex + ', ID "' + e.id + '"').join('\n  '));
+    schrijf('Geselecteerd: ' + d.detailsOfElements.length + '\n  ' + d.detailsOfElements.map(e => e.type + ', laag ' + e.layerIndex + ', ID "' + e.id + '"' + (e.details && e.details.polygonCoordinates ? ' | mesh: ' + e.details.polygonCoordinates.length + ' punten, ' + (e.details.holes || []).length + ' gaten, niveau ' + e.details.level + ', skirt ' + e.details.skirtType + ' (' + e.details.skirtLevel + ')' : '')).join('\n  '));
   },
   b_zet: async () => {
     const laag = await testlaagIndex(); if (laag === null) return;
@@ -327,7 +327,19 @@ class Handler(BasisHandler):
 
     def do_GET(self):
         pad = urlparse(self.path).path
-        if pad == "/test":
+        if pad == "/logo.png":
+            try:
+                with open(os.path.join(HIER, "logo.png"), "rb") as f:
+                    data = f.read()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "max-age=86400")
+                self.end_headers()
+                self.wfile.write(data)
+            except OSError:
+                self._stuur(404, "", "text/plain")
+        elif pad == "/test":
             self._stuur(200, TESTPAGINA, "text/html; charset=utf-8")
         elif pad == "/info":
             self._stuur(200, json.dumps(info()), "application/json")
