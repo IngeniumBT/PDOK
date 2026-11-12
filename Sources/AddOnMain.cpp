@@ -61,7 +61,7 @@ static void OpenImportPalette ()
     GS::UniString html;
     html += "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>PDOK Import</title></head>";
     html += "<body style=\"font-family:Segoe UI,Arial,sans-serif;margin:16px\">De kaart wordt geladen...";
-    html += "<script>location.replace('http://127.0.0.1:" + GS::ValueToUniString (static_cast<Int32> (engine.port)) + "/');</script>";
+    html += "<script>location.replace('http://127.0.0.1:" + GS::ValueToUniString (static_cast<Int32> (engine.port)) + "/?palet=1');</script>";
     html += "</body></html>";
     ImportPalette::Instance ().ShowHTML (html);
 }

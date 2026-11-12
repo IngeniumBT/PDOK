@@ -1,9 +1,9 @@
-"""PDOK Import - de motor (versie 0.3: testpaneel voor groep 1).
+"""PDOK Import - de motor.
 
 Deze motor wordt door de add-on gestart (met de meegeleverde Python) en draait op de achtergrond. Hij start een
-kleine webserver op een vrije poort, schrijft die poort naar het bestand dat de add-on opgeeft (--port-file) en toont
-een testpaneel waarmee je de opdrachten van de add-on in Archicad kunt uitproberen. De motor roept die opdrachten aan
-via de JSON-interface van Archicad (--archicad-port), namespace PDOKImport.
+webserver op een vrije poort, schrijft die poort naar het bestand dat de add-on opgeeft (--port-file) en toont in het
+palet de kaart met de import (kaart.py). De import praat met de opdrachten van de add-on via de JSON-interface van
+Archicad (--archicad-port, namespace PDOKImport). Op /test staat een testpaneel om die opdrachten los te proberen.
 """
 import argparse
 import ctypes
@@ -11,60 +11,40 @@ import json
 import os
 import platform
 import sys
+import tempfile
 import threading
 import time
+import traceback
+from urllib.parse import urlparse
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # de embeddable Python voegt de scriptmap niet toe
+HIER = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HIER)                                   # de embeddable Python voegt de scriptmap niet toe
+sys.path.insert(0, os.path.join(HIER, "lib"))              # meegeleverde pakketten (requests en wat daarbij hoort)
+
+# De gedownloade 3D-gegevens blijven bewaard in een vaste map van de gebruiker, niet per versie van de motor.
+os.environ.setdefault("PDOK_CACHE", os.path.join(os.environ.get("LOCALAPPDATA") or tempfile.gettempdir(), "PDOKImport", "cache"))
+try:
+    os.makedirs(os.environ["PDOK_CACHE"], exist_ok=True)
+except OSError:
+    pass
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer  # noqa: E402
-import urllib.request  # noqa: E402
+
+try:
+    import kaart  # noqa: E402
+    KAART_FOUT = None
+except Exception:  # noqa: BLE001
+    kaart = None
+    KAART_FOUT = traceback.format_exc()
 
 START = time.time()
 SERVER = {"obj": None}
 ARCHICAD = {"port": 0}
-NAMESPACE = "PDOKImport"
-TIJDSLIMIET = 900
 
-
-def post_archicad(inhoud):
-    verzoek = urllib.request.Request(
-        f"http://127.0.0.1:{ARCHICAD['port']}", data=json.dumps(inhoud).encode("utf-8"),
-        headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(verzoek, timeout=TIJDSLIMIET) as r:
-        return json.loads(r.read().decode("utf-8"))
-
-
-def officieel(commando, parameters=None):
-    """Roept een commando van Archicads eigen JSON-interface aan (bijvoorbeeld API.GetAttributesByType)."""
-    if not ARCHICAD["port"]:
-        raise RuntimeError("De add-on gaf de poort van Archicad niet door (--archicad-port).")
-    return post_archicad({"command": commando, "parameters": parameters or {}})
-
-
-def ac(naam, parameters=None, namespace=NAMESPACE):
-    """Roept een opdracht van de add-on aan via de JSON-interface van Archicad. Geeft het ruwe antwoord."""
-    if not ARCHICAD["port"]:
-        raise RuntimeError("De add-on gaf de poort van Archicad niet door (--archicad-port).")
-    inhoud = {
-        "command": "API.ExecuteAddOnCommand",
-        "parameters": {
-            "addOnCommandId": {"commandNamespace": namespace, "commandName": naam},
-            "addOnCommandParameters": parameters or {},
-        },
-    }
-    verzoek = urllib.request.Request(
-        f"http://127.0.0.1:{ARCHICAD['port']}", data=json.dumps(inhoud).encode("utf-8"),
-        headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(verzoek, timeout=TIJDSLIMIET) as r:
-        return json.loads(r.read().decode("utf-8"))
-
-
-PAGINA = r"""<!DOCTYPE html>
+TESTPAGINA = r"""<!DOCTYPE html>
 <html lang="nl"><head><meta charset="utf-8">
 <title>PDOK Import</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <style>
 body{font-family:Segoe UI,Arial,sans-serif;font-size:14px;margin:0;padding:12px;color:#222}
 h1{font-size:18px;margin:0 0 6px}h2{font-size:15px;margin:14px 0 6px}
@@ -73,7 +53,7 @@ button{padding:5px 10px;margin:2px 6px 2px 0}
 #uit{background:#f4f4f4;border:1px solid #ccc;padding:8px;white-space:pre-wrap;max-height:300px;overflow:auto;font-family:Consolas,monospace;font-size:12px}
 #kaart{height:260px;border:1px solid #999;margin-top:6px}
 </style></head><body>
-<h1>PDOK Import <span id="titelstatus"></span></h1>
+<h1>PDOK Import - testpaneel <span id="titelstatus"></span></h1>
 <div class="klein" id="info">Bezig met laden...</div>
 
 <h2>Testpaneel groep 1: de opdrachten van de add-on</h2>
@@ -108,10 +88,7 @@ button{padding:5px 10px;margin:2px 6px 2px 0}
  "Selectie op de testlaag zetten". Het krijgt dan de laag PDOK_test en het ID TEST-1, TEST-2...</div>
 <div id="uit">De uitvoer van de tests komt hier.</div>
 
-<h2>Kaart in dit palet</h2>
-<div class="klein">Houd <b>Shift</b> ingedrukt en sleep om een rechthoek te tekenen. <span id="kaartstatus" class="fout">De kaartbibliotheek is nog niet geladen.</span></div>
-<div id="kaart"></div>
-<div id="rechthoek" class="klein"></div>
+<p><a href="/">&larr; terug naar de kaart</a></p>
 
 <script>
 const TYPEN = ['Wall','Column','Beam','Window','Door','Object','Lamp','Slab','Roof','Mesh','Zone','Shell','Morph','Line','Arc','Polyline','Spline','Text','Hatch'];
@@ -271,24 +248,7 @@ async function laadInfo() {
     document.getElementById('titelstatus').innerHTML = '<span class="ok">- motor actief</span>';
   } catch (e) { document.getElementById('info').innerHTML = '<span class="fout">Kon de motor niet bereiken: ' + e + '</span>'; }
 }
-function startKaart() {
-  const st = document.getElementById('kaartstatus');
-  if (typeof L === 'undefined') { st.textContent = 'De kaartbibliotheek kon niet worden geladen.'; return; }
-  st.className = 'ok'; st.textContent = 'Leaflet is geladen.';
-  const kaart = L.map('kaart', {boxZoom: false}).setView([51.97, 5.70], 13);
-  L.tileLayer('https://service.pdok.nl/brt/achtergrondkaart/wmts/v2_0/standaard/EPSG:3857/{z}/{x}/{y}.png', {maxZoom: 19, attribution: 'Kaartgegevens PDOK'}).addTo(kaart);
-  let slepen = null, vlak = null;
-  kaart.on('mousedown', e => { if (!e.originalEvent.shiftKey || e.originalEvent.button !== 0) return; if (vlak) { kaart.removeLayer(vlak); vlak = null; } slepen = e.latlng; if (e.originalEvent.preventDefault) e.originalEvent.preventDefault(); });
-  kaart.on('mousemove', e => {
-    if (!slepen) return;
-    const g = L.latLngBounds(slepen, e.latlng);
-    if (vlak) vlak.setBounds(g); else vlak = L.rectangle(g, {color: '#e60000'}).addTo(kaart);
-    document.getElementById('rechthoek').textContent = 'Rechthoek: ongeveer ' + Math.round(kaart.distance(g.getSouthWest(), g.getSouthEast())) + ' x ' + Math.round(kaart.distance(g.getSouthWest(), g.getNorthWest())) + ' meter';
-  });
-  window.addEventListener('mouseup', () => { slepen = null; });
-}
 laadInfo();
-startKaart();
 </script></body></html>
 """
 
@@ -296,10 +256,20 @@ startKaart();
 def info():
     return {"python": sys.version.split()[0], "executable": sys.executable, "pid": os.getpid(),
             "uptime_s": round(time.time() - START, 1), "platform": platform.platform(),
-            "archicad_port": ARCHICAD["port"]}
+            "archicad_port": ARCHICAD["port"], "kaart_geladen": kaart is not None,
+            "cache": os.environ.get("PDOK_CACHE", "")}
 
 
-class Handler(BaseHTTPRequestHandler):
+FOUTPAGINA = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>PDOK Import</title></head>
+<body style="font-family:Segoe UI,Arial,sans-serif;margin:16px"><h2>De kaart kon niet worden geladen</h2>
+<p>De motor draait, maar het onderdeel met de kaart gaf een fout. Stuur deze tekst mee als je hulp vraagt:</p>
+<pre style="background:#f4f4f4;padding:8px;white-space:pre-wrap">__FOUT__</pre>
+<p><a href="/test">testpaneel</a></p></body></html>"""
+
+BasisHandler = kaart.Handler if kaart is not None else BaseHTTPRequestHandler
+
+
+class Handler(BasisHandler):
     def log_message(self, fmt, *args):                     # stil: de aanvragen hoeven niet in het logboek
         pass
 
@@ -313,33 +283,39 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        pad = self.path.split("?")[0]
-        if pad in ("/", "/index.html"):
-            self._stuur(200, PAGINA, "text/html; charset=utf-8")
+        pad = urlparse(self.path).path
+        if pad == "/test":
+            self._stuur(200, TESTPAGINA, "text/html; charset=utf-8")
         elif pad == "/info":
             self._stuur(200, json.dumps(info()), "application/json")
-        elif pad == "/stop":
+        elif pad == "/stopmotor":
             self._stuur(200, json.dumps({"gestopt": True}), "application/json")
             threading.Thread(target=SERVER["obj"].shutdown, daemon=True).start()
+        elif kaart is None:
+            self._stuur(500, FOUTPAGINA.replace("__FOUT__", (KAART_FOUT or "").replace("<", "&lt;")), "text/html; charset=utf-8")
         else:
-            self._stuur(404, json.dumps({"fout": "onbekend adres"}), "application/json")
+            super().do_GET()
 
     def do_POST(self):
-        pad = self.path.split("?")[0]
-        lengte = int(self.headers.get("Content-Length") or 0)
-        body = self.rfile.read(lengte) if lengte else b""
-        if pad != "/ac":
-            self._stuur(404, json.dumps({"fout": "onbekend adres"}), "application/json")
-            return
-        try:
-            vraag = json.loads(body.decode("utf-8") or "{}")
-            if vraag.get("official"):
-                antwoord = officieel(vraag["official"], vraag.get("params") or {})
-            else:
-                antwoord = ac(vraag["command"], vraag.get("params") or {})
-        except Exception as fout:  # noqa: BLE001
-            antwoord = {"succeeded": False, "error": {"message": type(fout).__name__ + ": " + str(fout)}}
-        self._stuur(200, json.dumps(antwoord), "application/json")
+        pad = urlparse(self.path).path
+        if pad == "/ac":
+            lengte = int(self.headers.get("Content-Length") or 0)
+            body = self.rfile.read(lengte) if lengte else b""
+            try:
+                vraag = json.loads(body.decode("utf-8") or "{}")
+                if kaart is None:
+                    raise RuntimeError("het onderdeel met de kaart is niet geladen")
+                if vraag.get("official"):
+                    antwoord = kaart.officieel(vraag["official"], vraag.get("params") or {})
+                else:
+                    antwoord = kaart.tapir(vraag["command"], vraag.get("params") or {})
+            except Exception as fout:  # noqa: BLE001
+                antwoord = {"succeeded": False, "error": {"message": type(fout).__name__ + ": " + str(fout)}}
+            self._stuur(200, json.dumps(antwoord), "application/json")
+        elif kaart is None:
+            self._stuur(500, json.dumps({"fout": "het onderdeel met de kaart is niet geladen"}), "application/json")
+        else:
+            super().do_POST()
 
 
 def bewaak_ouder(pid):
@@ -368,13 +344,19 @@ def main():
     ap.add_argument("--archicad-port", type=int, default=0, help="poort van de JSON-interface van Archicad")
     args = ap.parse_args()
     ARCHICAD["port"] = args.archicad_port
+    if kaart is not None:
+        kaart.zet_archicad_poort(args.archicad_port or 19723)
 
     print("motor start, Python", sys.version.split()[0], "pid", os.getpid(), "Archicad-poort", args.archicad_port, flush=True)
+    if KAART_FOUT:
+        print("LET OP: kaart.py kon niet worden geladen:\n" + KAART_FOUT, flush=True)
     bewaak_ouder(args.parent_pid)
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)   # poort 0: Windows kiest een vrije poort
     server.daemon_threads = True
     SERVER["obj"] = server
     poort = server.server_address[1]
+    if kaart is not None:
+        kaart.SERVER["poort"] = poort
     tijdelijk = args.port_file + ".tmp"
     with open(tijdelijk, "w", encoding="ascii") as f:
         f.write(str(poort))
@@ -388,7 +370,6 @@ if __name__ == "__main__":
     try:
         main()
     except Exception:  # noqa: BLE001
-        import traceback
         traceback.print_exc()
         sys.stdout.flush()
         sys.exit(1)

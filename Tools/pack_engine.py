@@ -6,6 +6,8 @@ Maakt twee bestanden in de map Sources, die AddOnMain.rc2 als bronnen (RCDATA) i
 Wordt door CMake aangeroepen bij het instellen van het project, en kan ook los worden gedraaid.
 Alleen de standaardbibliotheek.
 """
+import os
+import subprocess
 import sys
 import time
 import urllib.request
@@ -38,6 +40,21 @@ def download(url: str, dest: Path, attempts: int = 5) -> None:
             time.sleep(wacht)
 
 
+def vendor_requests(lib: Path) -> None:
+    """Zet requests en wat daarbij hoort (urllib3, idna, certifi, charset_normalizer) in Engine/lib, voor de Python die in
+    het .apx zit (3.12, Windows 64 bit). pip downloadt daarvoor de juiste pakketten, ook op een andere computer."""
+    if (lib / "requests").is_dir():
+        return
+    if os.environ.get("PDOK_PACK_ZONDER_PIP"):
+        print("PDOK_PACK_ZONDER_PIP is gezet: requests wordt niet meegeleverd (alleen voor tests).")
+        return
+    print("requests meeleveren via pip...", flush=True)
+    subprocess.check_call([
+        sys.executable, "-m", "pip", "install", "--quiet", "--disable-pip-version-check", "--no-compile",
+        "--target", str(lib), "--platform", "win_amd64", "--python-version", PY_VERSION.rsplit(".", 1)[0],
+        "--implementation", "cp", "--only-binary=:all:", "requests"])
+
+
 def main() -> int:
     embed = SOURCES / "python-embed.zip"
     if not embed.exists():
@@ -51,6 +68,7 @@ def main() -> int:
     if not ENGINE.is_dir() or not (ENGINE / "engine.py").is_file():
         print(f"FOUT: {ENGINE / 'engine.py'} ontbreekt.", file=sys.stderr)
         return 1
+    vendor_requests(ENGINE / "lib")
     app = SOURCES / "engine-app.zip"
     with zipfile.ZipFile(app, "w", zipfile.ZIP_DEFLATED) as z:
         for p in sorted(ENGINE.rglob("*")):

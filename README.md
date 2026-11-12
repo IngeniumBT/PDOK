@@ -10,6 +10,9 @@ Eén `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat ee
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.6.0: de echte kaart en import in het palet.** BGT- en kadasterlagen (als vlakken en polylijnen) en de **bomen**
+  worden vanuit het palet geimporteerd, via de opdrachten van de add-on zelf. 3D-gebouwen, 3D-terrein en teksten staan nog
+  uitgeschakeld (die opdrachten volgen). Het testpaneel staat nu op de link **testpaneel** rechtsonder.
 - **0.5.0 (groep 3, deel 1):** de opdracht **CreateObjects** voor bibliotheekobjecten (zoals de bomen): op naam zoeken, plaatsen op
   een absolute hoogte (omgerekend naar de verdieping), met afmetingen (A, B, ZZYZX), draaiing, laag en ID.
 - **0.4.1:** een ID voor een element dat er geen kan hebben (lijn, polylijn) verwijdert het element niet meer.
@@ -35,34 +38,25 @@ Eén `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat ee
 - Het **logboek** staat in dezelfde map: `engine.log`. Bij een probleem staat daar de oorzaak in.
 - Windows zoekt `tar.exe` (zit in Windows 10 en nieuwer) om het uit te pakken, en probeert anders PowerShell.
 
-## Testen
+## Testen (versie 0.6.0: de echte import)
 
-Archicad: **PDOK Import > PDOK Import openen...**. Het palet toont bovenaan de motor en daaronder het **testpaneel**.
+Archicad: **PDOK Import > PDOK Import openen...**. Het palet toont nu de **kaart** (rechtsonder de link *testpaneel*).
 
-**Groep 1** (zoals eerder): **Draai de basistests**, **Naar plattegrond / Naar 3D**, en met een zelf getekend element
-**Selectie lezen**, **Selectie op de testlaag zetten**, **tonen** en **verwijderen** (twee klikken).
-
-**Nieuw in deze versie**
-1. **Naar plattegrond** en **Naar 3D** melden nu ook of de **database** is gewisseld (`Database gewisseld: true`) en wat de
-   **huidige database** is. Bij je vorige test bleef het paneel na *Naar 3D* een 2D-vlak tonen; met deze melding zien we waarom.
-   Na *Naar 3D* hoort de huidige database `3DModel` te zijn, en na *Naar plattegrond* `FloorPlan`.
-2. Vul bij **Groep 2 (2D)** de coordinaten in waar je de testvormen wilt hebben (standaard rond RD 260250, 482250, het
-   gebied van je eerdere tests; pas aan als jouw model elders ligt).
-3. **Test: polylijn tekenen**: een lijn van 20 m met een knik, op de laag `PDOK_test`. Let op: **lijnen, polylijnen, bogen en cirkels
-   hebben in Archicad 29 geen Element-ID**; een gevraagd ID wordt dan genegeerd (`idIgnored`), het element blijft staan.
-4. **Test: vlak met gat tekenen**: een vlak van 20 x 20 m met een gat van 6 x 6 m, rode kleur, effen vulling (als er een
-   effen vulling in het project is), pen 1 voor de rand, ID `TEST-VLAK`.
-5. Zoom in Archicad naar die plek, of kies *Bewerken > Selecteren > Alle elementen op een laag* voor `PDOK_test`. Kijk of
-   het vlak het gat heeft, de kleur klopt en de lijn er staat.
-6. **Groep 3 (3D)**: vul de naam van het bibliotheekobject in (standaard "Boom stedenbouw 02") en een hoogte z in meter NAP, en kies
-   **Test: object plaatsen**. Het object komt 30 m naast de andere testvormen, op de laag `PDOK_test`, met ID `TEST-OBJ`. Controleer in
-   3D of het object **op de gekozen hoogte** staat (de voet van de stam op die z) en 6 x 6 x 10 m groot is.
-7. **Elementen op de testlaag tonen** en **verwijderen** (twee klikken) ruimen alles weer op. **Ongedaan maken** brengt het terug.
+1. **Een gebied tekenen**: klik op *Gebied tekenen* en sleep, of houd **Shift** ingedrukt en sleep. Begin klein (bijvoorbeeld
+   300 x 300 m).
+2. **2D-lagen**: vink in de lijst een paar BGT-lagen aan (bijvoorbeeld *wegdeel* en *pand*) en het kadaster (*perceel*).
+   Klik op **Importeren**. De voortgangsbalk loopt, en daarna staan er lagen in de map **PDOK Import** met de vlakken en
+   lijnen. Het **venster** van Archicad wisselt tijdelijk naar de plattegrond en gaat daarna terug naar waar je was.
+3. **Bomen**: vink *Bomen* aan (objectnaam standaard "Boom stedenbouw 02"). Ze komen op de laag `3D_bomen`, op de hoogte van het
+   terrein (uit de 3D Basisvoorziening van PDOK; de eerste keer duurt het ophalen van de tegel even), met het ID `BOOM-<BGT-id>`.
+   Een tweede keer importeren plaatst geen dubbelen.
+4. **Nog niet beschikbaar** (de opties zijn uitgeschakeld): 3D-gebouwen, 3D-terrein, en teksten (perceelnummers, plan-teksten).
+5. De gedownloade 3D-gegevens bewaart de motor in `%LOCALAPPDATA%\PDOKImport\cache`.
 
 ## Wat je terugmeldt
 
 - Een schermafbeelding van het testpaneel na de basistests, en van de uitvoer van de overige tests.
-- Wat er mislukt: de melding in het paneel (en zo nodig de inhoud van `engine.log`, te vinden via *Over PDOK Import...*).
+- Wat er mislukt: de melding in de voortgang of in het testpaneel (en zo nodig de inhoud van `engine.log`, te vinden via *Over PDOK Import...*).
 - Of de lagen, het venster en de ID's in Archicad zelf kloppen met wat het paneel meldt.
 - Wat de database-melding zegt na *Naar plattegrond* en *Naar 3D*.
 - Of de lijn en het vlak er in Archicad goed uitzien (het gat, de kleur, de pen).
