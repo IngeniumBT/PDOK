@@ -10,6 +10,11 @@ Eén `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat ee
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.14.5: de kleinste groep vlakken in driehoeken, gezocht met proefaanmaken.** Bij een pand dat Archicad weigert, werd het op LoD 2.2 pas gemaakt als *alle* vlakken in
+  driehoeken waren verdeeld (lange dunne waaiers op de daken). Nu zoekt de motor met **proefaanmaken** (nieuwe vlag `dryRun` in de aanmaakopdrachten van de add-on:
+  het element wordt gemaakt en direct weer verwijderd, binnen dezelfde opdracht) de kleinste groep vlakken die echt in driehoeken moet; de rest blijft een vlak. Dit werkt alleen
+  met add-on 0.14.5 of nieuwer; bij een oudere add-on wordt het zoeken overgeslagen, zodat er nooit proefelementen achterblijven. Het log noemt hoeveel vlakken in
+  driehoeken moesten en hoeveel proefaanmaken nodig waren.
 - **0.14.4: gebouwen met minder driehoeken.** Dat het pand 0173100000141026 nu op LoD 2.2 stond, kostte veel driehoeken: de opschoonstap verdeelde alle vlakken in driehoeken,
   wat lange dunne waaiers op de daken gaf. Nu worden alleen vlakken die meer dan 5 mm van vlak afwijken in driehoeken verdeeld; de rest blijft een vlak. De oude
   verdeling van alles blijft als laatste stap binnen LoD 2.2.

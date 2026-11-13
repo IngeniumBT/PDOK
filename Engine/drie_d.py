@@ -421,11 +421,19 @@ def bouw_lichaam(pand, lod, z_verschuiving=0.0, opp_ids=None, driehoeken=False, 
     soorten_teller = Counter()
     zonder_driehoeken = 0
     gaten_gevuld = weggelaten = getrianguleerd = 0
-    for buiten, gaten, soort in vlakken:
+    kandidaten = []                      # de vlakken die ook een driehoek zouden kunnen worden (meer dan drie hoekpunten, of met gat)
+    gekozen = driehoeken if isinstance(driehoeken, (set, frozenset)) else None
+    for n_vlak, (buiten, gaten, soort) in enumerate(vlakken):
         sleutel = TYPE_NAAR_OPPERVLAK.get(soort)
         soorten_teller[sleutel] += 1
         oppervlak_id = opp_ids[sleutel] if opp_ids and sleutel in opp_ids else None
-        if driehoeken is True or (driehoeken and is_scheef(wereld, buiten)):
+        if len(buiten) > 3 or gaten:
+            kandidaten.append(n_vlak)
+        if gekozen is not None:
+            verdelen = n_vlak in gekozen
+        else:
+            verdelen = driehoeken is True or (driehoeken == "scheef" and is_scheef(wereld, buiten))
+        if verdelen:
             b = list(reversed(buiten)) if omkeren else buiten
             gs = [list(reversed(g)) if omkeren else g for g in gaten]
             tris = triangulatie_vlak(wereld, b, gs)
@@ -477,7 +485,7 @@ def bouw_lichaam(pand, lod, z_verschuiving=0.0, opp_ids=None, driehoeken=False, 
             "hoekpunten": len(vertices), "volume": abs(volume), "omgekeerd": omkeren,
             "open_randen": open_randen, "meer_dan_twee": meer_dan_twee, "overgeslagen": overgeslagen,
             "soorten": soorten_teller, "zonder_driehoeken": zonder_driehoeken, "gaten_gevuld": gaten_gevuld, "weggelaten": weggelaten,
-            "getrianguleerd": getrianguleerd}
+            "getrianguleerd": getrianguleerd, "kandidaten": kandidaten}
     return {"x": bx, "y": by, "z": bz}, {"vertices": vertices, "polygons": polygonen}, stat
 
 
@@ -996,7 +1004,9 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
     def item(g):
         return {"basePoint": g["basis"], "body": g["lichaam"], "layerIndex": laag, "id": g["id"]}
 
-    def maak(batch):
+    def maak(batch, proef=False):
+        if proef:                                   # een proefaanmaak: Archicad maakt het aan en verwijdert het direct weer
+            batch = [dict(b, dryRun=True) for b in batch]
         r = kaart.tapir("CreateMorphs", {"morphsData": batch})
         if not r.get("succeeded"):
             return None, r
@@ -1007,6 +1017,58 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
 
     def als_open_lichaam(lichaam):
         return dict(lichaam, bodyType="Surface")
+
+    proef_kan = {}
+
+    def proefaanmaak_mogelijk():
+        """Proefaanmaken (dryRun) bestaan vanaf add-on 0.14.5. Bij een oudere add-on zou de vlag genegeerd worden en blijven er elementen
+        achter, dus dan slaan we het zoeken over."""
+        if "ja" not in proef_kan:
+            try:
+                r = kaart.tapir("GetAddOnVersion")
+                versie = re.findall(r"\d+\.\d+\.\d+", json.dumps(r))
+                proef_kan["ja"] = bool(versie) and tuple(int(x) for x in versie[0].split(".")) >= (0, 14, 5)
+            except Exception:
+                proef_kan["ja"] = False
+        return proef_kan["ja"]
+
+    def kleinste_groep(g, opsch=False, max_tests=80):
+        """Zoekt met proefaanmaken (aanmaken en direct weer verwijderen) de kleinste groep vlakken die in driehoeken moet, zodat Archicad het
+        pand aanneemt; alle andere vlakken blijven een vlak. Begint met alle vlakken in driehoeken (dat werkt dan) en probeert groepen
+        weer een vlak te laten worden. Geeft (groep of None, aantal proefaanmaken, aantal kandidaten)."""
+        if not proefaanmaak_mogelijk():
+            return None, 0, 0
+        basis0 = bouw_lichaam(g["pand"], g["lod"], z_verschuiving, opp, driehoeken=set(), opschonen=opsch)
+        if not basis0:
+            return None, 0, 0
+        kand = basis0[2]["kandidaten"]
+        tests = 0
+
+        def werkt(groep):
+            nonlocal tests
+            tests += 1
+            res_ = bouw_lichaam(g["pand"], g["lod"], z_verschuiving, opp, driehoeken=set(groep), opschonen=opsch)
+            if not res_:
+                return False
+            els_, _ = maak([{"basePoint": res_[0], "body": res_[1], "layerIndex": laag, "id": g["id"]}], proef=True)
+            return bool(els_) and lukt(els_)
+
+        if not kand or not werkt(kand):
+            return None, tests, len(kand)
+        groep = list(kand)
+        stap = max(1, len(groep) // 2)
+        while tests < max_tests:
+            i = 0
+            while i < len(groep) and tests < max_tests:
+                proef_groep = groep[:i] + groep[i + stap:]
+                if werkt(proef_groep):
+                    groep = proef_groep              # zonder deze vlakken lukt het ook: ze mogen een gewoon vlak blijven
+                else:
+                    i += stap
+            if stap == 1:
+                break
+            stap = max(1, stap // 2)
+        return groep, tests, len(kand)
 
     def in_delen(g, lod):
         """Maakt elk deel van het pand als eigen morph (zonder gedeelde scheidingsmuren), elk deel zo mogelijk als gesloten lichaam,
@@ -1080,7 +1142,21 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
             res_s = bouw_lichaam(g["pand"], g["lod"], z_verschuiving, opp, driehoeken="scheef")
             if res_s and res_s[2].get("getrianguleerd"):
                 probeer("met driehoeken voor de scheve vlakken", res_s)
-            # 1b: alle vlakken in driehoeken
+            # 1b: de kleinste groep vlakken die in driehoeken moet (gezocht met proefaanmaken); alle andere vlakken blijven een gewoon vlak
+            def zoek_en_probeer(opsch):
+                groep, tests, totaal_k = kleinste_groep(g, opsch)
+                label = "kleinste groep vlakken in driehoeken" + (", opgeschoond" if opsch else "")
+                if groep is None:
+                    pog.append(f"{label}: niet mogelijk ({tests} proefaanmaken)" if tests else f"{label}: overgeslagen")
+                    return
+                pog.append(f"zoeken{' (opgeschoond)' if opsch else ''}: {len(groep)} van {totaal_k} vlakken moeten in driehoeken ({tests} proefaanmaken)")
+                res_g = bouw_lichaam(g["pand"], g["lod"], z_verschuiving, opp, driehoeken=set(groep), opschonen=opsch)
+                if res_g:
+                    probeer(label, res_g)
+
+            if not klaar:
+                zoek_en_probeer(False)
+            # 1c: alle vlakken in driehoeken
             res = bouw_lichaam(g["pand"], g["lod"], z_verschuiving, opp, driehoeken=True)
             if not klaar:
                 if res:
@@ -1105,7 +1181,10 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
             # 3b: opgeschoond (hoekpunten op dezelfde plek samengevoegd, spijkers en samenvallende vlakken weg, een vlak dat niet te
             #     verdelen is zonder gat of weggelaten): eerst met zo min mogelijk driehoeken, en eerst gesloten, dan open
             if not klaar:
-                for naam, modus in (("opgeschoond, scheve vlakken in driehoeken", "scheef"), ("opgeschoond, alles in driehoeken", True)):
+                zoek_en_probeer(True)
+            if not klaar:
+                for naam, modus in (("opgeschoond, scheve vlakken in driehoeken", "scheef"),
+                                    ("opgeschoond, alles in driehoeken", True)):
                     schoon = bouw_lichaam(g["pand"], g["lod"], z_verschuiving, opp, driehoeken=modus, opschonen=True)
                     if not schoon:
                         pog.append(naam + ": niet op te bouwen")

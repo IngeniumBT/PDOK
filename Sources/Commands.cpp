@@ -808,6 +808,19 @@ private:
             return *afterError;
         }
 
+        // dryRun: een proefaanmaak. Het element is gemaakt (Archicad heeft het dus geaccepteerd) en wordt direct weer verwijderd,
+        // binnen dezelfde opdracht. Zo kan de motor uitzoeken welke vorm Archicad wel of niet aanneemt, zonder sporen in het project.
+        bool dryRun = false;
+        item.Get ("dryRun", dryRun);
+        if (dryRun) {
+            GS::Array<API_Guid> probe;
+            probe.Push (element.header.guid);
+            ACAPI_Element_Delete (probe);
+            GS::ObjectState result = ElementIdObject (element.header.guid);
+            result.Add ("dryRun", true);
+            return result;
+        }
+
         // Het ID zetten gebeurt na het aanmaken. Lijnen, polylijnen, bogen, cirkels en splines hebben in Archicad geen
         // Element-ID (APIERR_BADELEMENTTYPE): dat is geen reden om het element te verwijderen; het wordt gemeld.
         GS::ObjectState created = ElementIdObject (element.header.guid);

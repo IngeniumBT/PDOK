@@ -1,6 +1,6 @@
 # PDOK Import voor Archicad - handleiding voor proefgebruikers
 
-Versie 0.14.4 (proefversie). Deze add-on haalt gegevens van PDOK (de BGT, het kadaster, bestemmingsplannen en de 3D Basisvoorziening) op
+Versie 0.14.5 (proefversie). Deze add-on haalt gegevens van PDOK (de BGT, het kadaster, bestemmingsplannen en de 3D Basisvoorziening) op
 en zet ze in je Archicad-project: als lijnen en vlakken, als 3D-gebouwen, als terrein en als bomen.
 
 ## Wat heb je nodig
@@ -51,7 +51,7 @@ zet de maatvoeringen als tekst in de tekening. Het bestemmingsplan komt in de pl
 Daarna kies je wat je importeert:
 - **Gebouwen** (LoD 2.2, als morphs): elk pand wordt een morph op de laag `3D_gebouwen`, met het BAG-pandnummer als ID. *Met materialen* geeft dak, muur en
   grondvlak een eigen oppervlak (`PDOK_dak`, `PDOK_muur`, `PDOK_grondvlak`). Een pand dat uit meerdere delen bestaat (bijvoorbeeld een rijtje met gedeelde
-  scheidingsmuren) kan Archicad niet als een geheel maken; zo'n pand wordt dan in **delen** gemaakt (`BAGID-deel1`, `BAGID-deel2`, ...), nog steeds op LoD 2.2. Weigert Archicad een pand om een andere reden (bijvoorbeeld hoekpunten op bijna dezelfde plek), dan wordt het eerst **opgeschoond** (hoekpunten die op elkaar vallen samengevoegd, vlakken die niet in driehoeken te verdelen zijn zonder gat gemaakt of weggelaten, randen die in meer dan twee vlakken zitten teruggebracht; alleen vlakken die niet echt vlak zijn worden in driehoeken verdeeld, de rest blijft een vlak) en opnieuw op LoD 2.2 geprobeerd, voordat een lager niveau wordt gekozen. Na de import
+  scheidingsmuren) kan Archicad niet als een geheel maken; zo'n pand wordt dan in **delen** gemaakt (`BAGID-deel1`, `BAGID-deel2`, ...), nog steeds op LoD 2.2. Weigert Archicad een pand om een andere reden (bijvoorbeeld hoekpunten op bijna dezelfde plek), dan wordt het eerst **opgeschoond** (hoekpunten die op elkaar vallen samengevoegd, vlakken die niet in driehoeken te verdelen zijn zonder gat gemaakt of weggelaten, randen die in meer dan twee vlakken zitten teruggebracht; de add-on zoekt dan met proefaanmaken (die direct weer verwijderd worden) de kleinste groep vlakken die in driehoeken moet; de rest blijft een gewoon vlak) en opnieuw op LoD 2.2 geprobeerd, voordat een lager niveau wordt gekozen. Na de import
   meldt het overzicht hoeveel panden op welke manier zijn gemaakt, en of er panden zijn die in de bron geen LoD 2.2 hebben.
 - **Terrein** (als meshes, op vier lagen: wegen, landgebruik, begroeiing en water): elk BGT-object wordt een mesh met een eigen oppervlak. *Naadsluiting*
   trekt vlakken die tegen elkaar liggen gelijk, zodat er geen spleten zijn. *Terreintypen overslaan* laat soorten weg (gescheiden door `;`).
