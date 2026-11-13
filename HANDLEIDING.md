@@ -1,6 +1,6 @@
 # PDOK Import voor Archicad - handleiding voor proefgebruikers
 
-Versie 0.14.0 (proefversie). Deze add-on haalt gegevens van PDOK (de BGT, het kadaster, bestemmingsplannen en de 3D Basisvoorziening) op
+Versie 0.14.1 (proefversie). Deze add-on haalt gegevens van PDOK (de BGT, het kadaster, bestemmingsplannen en de 3D Basisvoorziening) op
 en zet ze in je Archicad-project: als lijnen en vlakken, als 3D-gebouwen, als terrein en als bomen.
 
 ## Wat heb je nodig
@@ -44,17 +44,19 @@ nummers bij de percelen. *Ook objecten boven en onder maaiveld* neemt de BGT-obj
 **Bestemmingsplan** - kies met *Kies gml-bestand* een IMRO-bestand (GML) van je bestemmingsplan; *Wissen* haalt het weer weg. *Maatvoering (bouwhoogte e.d.) als tekst*
 zet de maatvoeringen als tekst in de tekening. Het bestemmingsplan komt in de plattegrond.
 
-**3D** (de 3D Basisvoorziening van PDOK, hoogtes in NAP):
+**3D** (de 3D Basisvoorziening van PDOK). Bovenaan staat de keuze voor de **hoogtes**; die geldt voor het terrein, de gebouwen en de bomen:
+- **Volgens de 3D Basisvoorziening (NAP)**: alles krijgt zijn echte hoogte in meters NAP.
+- **Vlak: bovenkant terrein op 0 m**: de bovenkant van alle terreinmeshes ligt op 0 m, de **onderkant van elk gebouw** komt op 0 m te staan en de **bomen** staan op 0 m. Bruggen en viaducten worden dan overgeslagen. Handig voor een vlakke maquette-ondergrond.
+
+Daarna kies je wat je importeert:
 - **Gebouwen** (LoD 2.2, als morphs): elk pand wordt een morph op de laag `3D_gebouwen`, met het BAG-pandnummer als ID. *Met materialen* geeft dak, muur en
   grondvlak een eigen oppervlak (`PDOK_dak`, `PDOK_muur`, `PDOK_grondvlak`). Een pand dat uit meerdere delen bestaat (bijvoorbeeld een rijtje met gedeelde
-  scheidingsmuren) kan Archicad niet als een geheel maken; zo'n pand wordt dan in **delen** gemaakt (`BAGID-deel1`, `BAGID-deel2`, ...), nog steeds op LoD 2.2. Na de import
+  scheidingsmuren) kan Archicad niet als een geheel maken; zo'n pand wordt dan in **delen** gemaakt (`BAGID-deel1`, `BAGID-deel2`, ...), nog steeds op LoD 2.2. Weigert Archicad een pand om een andere reden (bijvoorbeeld hoekpunten op bijna dezelfde plek), dan wordt het eerst **opgeschoond** en opnieuw op LoD 2.2 geprobeerd, voordat een lager niveau wordt gekozen. Na de import
   meldt het overzicht hoeveel panden op welke manier zijn gemaakt, en of er panden zijn die in de bron geen LoD 2.2 hebben.
 - **Terrein** (als meshes, op vier lagen: wegen, landgebruik, begroeiing en water): elk BGT-object wordt een mesh met een eigen oppervlak. *Naadsluiting*
   trekt vlakken die tegen elkaar liggen gelijk, zodat er geen spleten zijn. *Terreintypen overslaan* laat soorten weg (gescheiden door `;`).
   *Onderkant* bepaalt of het terrein een massief **volume** wordt, **zijvlakken** krijgt of alleen een **bovenvlak**; de diepte geeft de onderkant
   in meters onder het laagste punt.
-- **Vlak terrein (bovenkant op een niveau)**: alle meshes krijgen de bovenkant op één niveau: de **gemiddelde hoogte**, het **laagste** of het **hoogste punt** van het terrein in
-  het gebied, of een **eigen niveau** in m NAP. Bruggen en viaducten worden dan overgeslagen en de bomen komen op dat niveau te staan. Handig voor een vlakke maquette-ondergrond.
 - **Hulpmiddelen voor het terrein** (uitklapbaar): *Terreincontrole* vergelijkt voor het getekende gebied het terrein in Archicad met de bron en meldt wat ontbreekt of afwijkt;
   *Terrein wissen* (twee klikken) verwijdert alle meshes op de terreinlagen.
 - **Viaducten en bruggen meenemen (als dun dek)**: leest de bruggen uit de bron in en maakt ze tot een dunne plaat. Deze functie is nog in ontwikkeling
@@ -78,7 +80,7 @@ de cache en gaat het sneller.
 
 - **Het coordinatenstelsel:** alleen een project met het nulpunt op RD (0, 0); het Survey Point wordt niet gebruikt.
 - **Viaducten** en bruggen worden in sommige gevallen nog niet goed gemaakt (bijvoorbeeld als dek en weg op dezelfde hoogte liggen in de bron).
-- **Vlak terrein** en **viaducten** sluiten elkaar uit: bij vlak terrein worden bruggen niet meegenomen.
+- Bij de keuze **Vlak (0 m)** worden bruggen en viaducten niet meegenomen.
 - **Alleen Windows en Archicad 29.**
 
 ## Problemen oplossen

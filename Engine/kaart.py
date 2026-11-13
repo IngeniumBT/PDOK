@@ -1005,7 +1005,7 @@ class PlattegrondActief:
         return False
 
 
-def importeer_gebouwen_uit_venster(gebied, materiaal):
+def importeer_gebouwen_uit_venster(gebied, materiaal, op_nul=False):
     if drie_d is None:
         print("3D-gebouwen overgeslagen: drie_d.py ontbreekt.")
         return 0
@@ -1017,7 +1017,7 @@ def importeer_gebouwen_uit_venster(gebied, materiaal):
         return 0
     print("\n=== 3D-gebouwen ===")
     try:
-        return drie_d.importeer_gebouwen(sys.modules[__name__], gebied, materiaal)
+        return drie_d.importeer_gebouwen(sys.modules[__name__], gebied, materiaal, op_nul)
     except Exception as fout:
         print("3D-gebouwen importeren mislukt:", fout)
         return 0
@@ -1209,16 +1209,16 @@ def _importeer(aanvraag, deel="alles"):
             aanvraag["plan"], (x_min, y_min, x_max, y_max), bool(aanvraag.get("planteksten", True)))
     if deel == "gebouwen":
         return importeer_gebouwen_uit_venster(
-            (x_min, y_min, x_max, y_max), bool(aanvraag.get("gebouwenmateriaal", True)))
+            (x_min, y_min, x_max, y_max), bool(aanvraag.get("gebouwenmateriaal", True)), aanvraag.get("hoogtemodus") == "nul")
     if deel == "bomen":
-        niveau = (terrein.LAATSTE_VLAK_NIVEAU if (terrein is not None and aanvraag.get("terrein") and aanvraag.get("terreinvlak")) else None)
+        niveau = 0.0 if aanvraag.get("hoogtemodus") == "nul" else None            # bij vlak terrein staan de bomen op 0 m
         return importeer_bomen_uit_venster((x_min, y_min, x_max, y_max), aanvraag.get("boomobject", ""), niveau)
     if deel == "terrein":
         return importeer_terrein_uit_venster(
             (x_min, y_min, x_max, y_max), bool(aanvraag.get("terreinnaad", True)),
             aanvraag.get("terreinoverslaan", ""), aanvraag.get("terreinskirt"), aanvraag.get("terreindiepte"),
             bool(aanvraag.get("terreindekken", True)),
-            (aanvraag.get("terreinvlakmodus") or "gemiddeld", aanvraag.get("terreinvlakwaarde")) if aanvraag.get("terreinvlak") else None)
+            ("eigen", 0.0) if aanvraag.get("hoogtemodus") == "nul" else None)
     if GEOREFERENTIE == "rd":
         midden_x = midden_y = 0
     else:
@@ -1385,6 +1385,9 @@ PAGINA = """<!DOCTYPE html>
  <p><label><input type="checkbox" id="alleniveaus"> Ook objecten boven en onder maaiveld</label></p>
  <b>3D</b> <small>(PDOK 3D Basisvoorziening, hoogtes in NAP)</small>
  <div class="groep">
+  <div class="klein" style="margin:0 0 2px"><b>Hoogtes</b> (geldt voor het terrein, de gebouwen en de bomen)</div>
+  <label class="klein" style="display:block"><input type="radio" name="hoogte" id="hoogte_bron" value="bron" checked> Volgens de 3D Basisvoorziening (NAP)</label>
+  <label class="klein" style="display:block;margin-bottom:6px"><input type="radio" name="hoogte" id="hoogte_nul" value="nul"> Vlak: bovenkant terrein op 0 m; de onderkant van gebouwen en de bomen op 0 m</label>
   <label><input type="checkbox" id="drie_gebouwen"> Gebouwen (LoD 2.2, als Morphs)</label><br>
   <label><input type="checkbox" id="drie_materiaal" checked> &nbsp;&nbsp;met materialen (dak, muur, grondvlak)</label><br>
   <label><input type="checkbox" id="drie_terrein"> Terrein (als Meshes, op vier lagen)</label><br>
@@ -1396,11 +1399,6 @@ PAGINA = """<!DOCTYPE html>
    <input type="text" id="drie_diepte" value="1" title="Diepte van de onderkant onder het laagste punt, in meter" style="flex:0 0 52px;width:52px"> <span class="klein">m</span>
   </div>
   <label class="klein" style="display:block;margin:2px 0"><input type="checkbox" id="drie_dekken" checked> Viaducten en bruggen meenemen (als dun dek)</label>
-  <label class="klein" style="display:block;margin:2px 0"><input type="checkbox" id="drie_vlak"> Vlak terrein (bovenkant op een niveau)</label>
-  <div class="rij" style="margin:2px 0 6px;align-items:center">
-   <select id="drie_vlakmodus" disabled style="flex:1 1 auto;min-width:0"><option value="gemiddeld" selected>gemiddelde hoogte</option><option value="laagste">laagste punt</option><option value="hoogste">hoogste punt</option><option value="eigen">eigen niveau</option></select>
-   <input type="text" id="drie_vlakwaarde" value="0" disabled title="Niveau in meter NAP" style="flex:0 0 56px;width:56px"> <span class="klein">m NAP</span>
-  </div>
 
   <label><input type="checkbox" id="drie_bomen"> Bomen (BGT-vegetatiepunten, als 3D-object op het terrein)</label>
   <input type="text" id="drie_boomobject" value="Boom stedenbouw 02" placeholder="Naam van het bibliotheekobject">
@@ -1480,13 +1478,6 @@ function timerKlaar(v) {
   const fases = (v.fases || []).map(f => f[0] + ' ' + duurTekst(f[1])).join(' \u00b7 ');
   timerEl.textContent = (v.status === 'fout' ? 'Duur tot de fout: ' : v.status === 'gestopt' ? 'Gestopt na ' : 'Klaar in ') + duurTekst(totaal) + (fases ? '  (' + fases + ')' : '');
 }
-// Het vlakke terrein: het niveau-veld hoort bij 'eigen niveau'.
-function zetVlak() {
-  const aan = document.getElementById('drie_vlak').checked, modus = document.getElementById('drie_vlakmodus');
-  modus.disabled = !aan; document.getElementById('drie_vlakwaarde').disabled = !(aan && modus.value === 'eigen');
-}
-document.getElementById('drie_vlak').onchange = zetVlak;
-document.getElementById('drie_vlakmodus').onchange = zetVlak;
 // De hulpmiddelen voor het terrein (controle en wissen).
 async function terreinActie(pad, gebiedNodig) {
   const uit = document.getElementById('drie_uit');
@@ -1518,7 +1509,7 @@ function nogNiet(ids) {                                          // een onderdee
   });
 }
 if (!BESCHIKBAAR.gebouwen) nogNiet(['drie_gebouwen', 'drie_materiaal']);
-if (!BESCHIKBAAR.terrein) nogNiet(['drie_terrein', 'drie_naad', 'drie_overslaan', 'drie_skirt', 'drie_diepte', 'drie_dekken', 'drie_vlak', 'drie_vlakmodus', 'drie_vlakwaarde', 'drie_controle', 'drie_wis']);
+if (!BESCHIKBAAR.terrein) nogNiet(['drie_terrein', 'drie_naad', 'drie_overslaan', 'drie_skirt', 'drie_diepte', 'drie_dekken', 'drie_controle', 'drie_wis']);
 if (!BESCHIKBAAR.tekst) nogNiet(['planteksten']);
 const MAX_ZIJDE = __MAX_ZIJDE__;
 const planInfo = document.getElementById('planinfo');
@@ -1727,10 +1718,7 @@ document.getElementById('importeer').onclick = async () => {
   const terreinoverslaan = document.getElementById('drie_overslaan').value;
   const terreinskirt = document.getElementById('drie_skirt').value;
   const terreindekken = document.getElementById('drie_dekken').checked;
-  const terreinvlak = terrein && document.getElementById('drie_vlak').checked;
-  const terreinvlakmodus = document.getElementById('drie_vlakmodus').value;
-  const terreinvlakwaarde = parseFloat(String(document.getElementById('drie_vlakwaarde').value).replace(',', '.'));
-  if (terreinvlak && terreinvlakmodus === 'eigen' && !isFinite(terreinvlakwaarde)) { status.textContent = 'Vul een geldig niveau in (m NAP) voor het vlakke terrein.'; return; }
+  const hoogtemodus = document.getElementById('hoogte_nul').checked ? 'nul' : 'bron';      // bron: NAP uit de 3D Basisvoorziening; nul: vlak op 0 m
   const terreindiepte = parseFloat(String(document.getElementById('drie_diepte').value).replace(',', '.')) || 1;
   const bomen = document.getElementById('drie_bomen').checked;
   const boomobject = document.getElementById('drie_boomobject').value;
@@ -1767,7 +1755,7 @@ document.getElementById('importeer').onclick = async () => {
   try {
     const r = await fetch('/import', {method: 'POST',
       body: JSON.stringify({...gebied, lagen, alleniveaus, pennen, plan, planteksten, perceelteksten,
-                            gebouwen, gebouwenmateriaal, terrein, terreinnaad, terreinoverslaan, terreinskirt, terreindiepte, terreindekken, terreinvlak, terreinvlakmodus, terreinvlakwaarde,
+                            gebouwen, gebouwenmateriaal, terrein, terreinnaad, terreinoverslaan, terreinskirt, terreindiepte, terreindekken, hoogtemodus,
                             bomen, boomobject})});
     const d = await r.json();
     if (d.fout) { status.textContent = 'Fout: ' + d.fout; return; }

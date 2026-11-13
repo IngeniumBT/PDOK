@@ -330,11 +330,12 @@ def zonder_dubbelen(ring):
     return uit
 
 
-def bouw_lichaam(pand, lod, z_verschuiving=0.0, opp_ids=None, driehoeken=False):
+def bouw_lichaam(pand, lod, z_verschuiving=0.0, opp_ids=None, driehoeken=False, opschonen=False):
     """Zet een pand om naar (basePoint, lichaam, statistiek) in lokale coordinaten.
 
     lichaam = {'vertices': [{x,y,z}], 'polygons': [{'vertexIds': [...], 'holes': [[...]]}]}"""
     lees = pand["lees"]
+    z_verschuiving = pand.get("z_verschuiving", z_verschuiving)          # per pand (bijvoorbeeld de onderkant op 0 m)
     oppervlakken = pand["geometrieen"][lod]
     typen = pand.get("typen", {}).get(lod) or [None] * len(oppervlakken)
     wereld = {}      # globale index -> (x, y, z)
@@ -352,12 +353,22 @@ def bouw_lichaam(pand, lod, z_verschuiving=0.0, opp_ids=None, driehoeken=False):
     lokaal_index = {}
     vertices = []
 
+    plek_index = {}                    # alleen bij opschonen: hoekpunten op dezelfde plek worden een hoekpunt
+    stap = OPSCHOON_RASTER if opschonen else None
+
     def idx(i):
         if i not in lokaal_index:
             x, y, z = wereld[i]
-            lokaal_index[i] = len(vertices)
-            vertices.append({"x": round(x - bx, AFRONDEN), "y": round(y - by, AFRONDEN),
-                             "z": round(z - bz, AFRONDEN)})
+            if stap:
+                sleutel = (round((x - bx) / stap), round((y - by) / stap), round((z - bz) / stap))
+                if sleutel not in plek_index:
+                    plek_index[sleutel] = len(vertices)
+                    vertices.append({"x": round(sleutel[0] * stap, 4), "y": round(sleutel[1] * stap, 4), "z": round(sleutel[2] * stap, 4)})
+                lokaal_index[i] = plek_index[sleutel]
+            else:
+                lokaal_index[i] = len(vertices)
+                vertices.append({"x": round(x - bx, AFRONDEN), "y": round(y - by, AFRONDEN),
+                                 "z": round(z - bz, AFRONDEN)})
         return lokaal_index[i]
 
     vlakken = []
@@ -416,6 +427,9 @@ def bouw_lichaam(pand, lod, z_verschuiving=0.0, opp_ids=None, driehoeken=False):
             d["holes"] = [{"vertexIds": [idx(i) for i in (list(reversed(g)) if omkeren else g)]} for g in gaten]
         polygonen.append(d)
 
+    if opschonen:
+        polygonen = opgeschoonde_polygonen(polygonen, vertices)
+
     # Gesloten? Elke rand hoort in precies twee vlakken voor te komen.
     randen = Counter()
     for d in polygonen:
@@ -430,6 +444,81 @@ def bouw_lichaam(pand, lod, z_verschuiving=0.0, opp_ids=None, driehoeken=False):
             "open_randen": open_randen, "meer_dan_twee": meer_dan_twee, "overgeslagen": overgeslagen,
             "soorten": soorten_teller, "zonder_driehoeken": zonder_driehoeken}
     return {"x": bx, "y": by, "z": bz}, {"vertices": vertices, "polygons": polygonen}, stat
+
+
+OPSCHOON_RASTER = 0.005     # m: bij opschonen vallen hoekpunten binnen 5 mm op elkaar
+
+
+def _schoon_ring(ring):
+    """Haalt dubbele opeenvolgende hoekpunten en spijkers (A, B, A) uit een ring."""
+    ring = zonder_dubbelen(list(ring))
+    veranderd = True
+    while veranderd and len(ring) >= 3:
+        veranderd = False
+        for i in range(len(ring)):
+            if ring[i - 1] == ring[(i + 1) % len(ring)]:         # een spijker: heen en terug over dezelfde rand
+                del ring[i]
+                ring = zonder_dubbelen(ring)
+                veranderd = True
+                break
+    return ring if len(ring) >= 3 else None
+
+
+def opgeschoonde_polygonen(polygonen, vertices, min_oppervlak=1e-3):
+    """Na het samenvoegen van hoekpunten: ringen zonder dubbele punten en spijkers, vlakken die geen vlak meer zijn en
+    dubbele vlakken (dezelfde hoekpunten) weglaten."""
+    uit, gezien = [], set()
+    for d in polygonen:
+        ring = _schoon_ring(d["vertexIds"])
+        if ring is None:
+            continue
+        pt = [(vertices[i]["x"], vertices[i]["y"], vertices[i]["z"]) for i in ring]
+        if vlak_oppervlak(pt) < min_oppervlak:
+            continue
+        sleutel = tuple(sorted(ring))
+        if sleutel in gezien:
+            continue
+        gezien.add(sleutel)
+        nieuw = dict(d, vertexIds=ring)
+        gaten = []
+        for h in d.get("holes", []):
+            g = _schoon_ring(h["vertexIds"])
+            if g is not None:
+                gaten.append({"vertexIds": g})
+        if gaten:
+            nieuw["holes"] = gaten
+        else:
+            nieuw.pop("holes", None)
+        uit.append(nieuw)
+    return uit
+
+
+def beschrijf_lichaam(lichaam):
+    """Een korte beschrijving van wat er in een lichaam zit, om te zien waarom Archicad het weigert."""
+    v, pg = lichaam["vertices"], lichaam["polygons"]
+    pt = lambda i: (v[i]["x"], v[i]["y"], v[i]["z"])
+    kortste = min((math.dist(pt(r[k]), pt(r[(k + 1) % len(r)])) for d in pg for r in [d["vertexIds"]] for k in range(len(r))), default=0.0)
+    plekken = Counter((round(p["x"], 3), round(p["y"], 3), round(p["z"], 3)) for p in v)
+    dubbel = sum(n - 1 for n in plekken.values() if n > 1)
+    klein = sum(1 for d in pg if vlak_oppervlak([pt(i) for i in d["vertexIds"]]) < 1e-2)
+    scheef = 0.0
+    for d in pg:
+        r = d["vertexIds"]
+        if len(r) <= 3:
+            continue
+        p = [pt(i) for i in r]
+        n = newell_normaal(p)
+        ln = math.sqrt(sum(c * c for c in n)) or 1.0
+        n = tuple(c / ln for c in n)
+        scheef = max(scheef, max(abs(sum(n[k] * (q[k] - p[0][k]) for k in range(3))) for q in p))
+    randen = Counter()
+    for d in pg:
+        for ring in [d["vertexIds"]] + [h["vertexIds"] for h in d.get("holes", [])]:
+            for a, b in zip(ring, ring[1:] + ring[:1]):
+                randen[(min(a, b), max(a, b))] += 1
+    return (f"{len(v)} hoekpunten, {len(pg)} vlakken ({sum(1 for d in pg if d.get('holes'))} met gaten), kortste rand {kortste * 1000:.1f} mm, "
+            f"{dubbel} hoekpunten op dezelfde plek als een ander, {klein} vlakken kleiner dan 1 dm2, grootste afwijking van vlakheid "
+            f"{scheef * 1000:.1f} mm, {sum(1 for n in randen.values() if n == 1)} open randen, {sum(1 for n in randen.values() if n > 2)} randen in meer dan twee vlakken")
 
 
 # ------------------------------------------------------------ Driehoeken
@@ -694,6 +783,13 @@ def hoofd(argumenten):
         z_verschuiving = -laagste
         print(f"Hoogtes omgerekend: laagste punt {laagste:.2f} m NAP wordt 0.")
 
+    # De onderkant van elk pand op 0 m (bij vlak terrein): per pand, zodat elk pand op het vlakke terrein staat
+    if "--op-nul" in argumenten:
+        for pand in panden.values():
+            lod = next((l for l in LOD_VOLGORDE if l in pand["geometrieen"]), next(iter(pand["geometrieen"])))
+            pand["z_verschuiving"] = -min(pand["lees"](i)[2] for vl in pand["geometrieen"][lod] for ring in vl for i in ring)
+        print("Hoogtes: de onderkant van elk pand ligt op 0 m (vlak terrein).")
+
     # Oppervlakken (alleen bij echt aanmaken; bij --droog is Archicad niet nodig)
     opp = None
     if not droog and "--zonder-materiaal" not in argumenten:
@@ -875,6 +971,8 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
             if kies is None:
                 continue
             deel_pand = {"attributen": pand["attributen"], "lees": pand["lees"], "geometrieen": deel["geometrieen"], "typen": deel["typen"]}
+            if "z_verschuiving" in pand:
+                deel_pand["z_verschuiving"] = pand["z_verschuiving"]
             klaar = False
             for naam, driehoeken, open_lichaam in (("gesloten", False, False), ("met driehoeken", True, False), ("open", True, True)):
                 res = bouw_lichaam(deel_pand, kies, z_verschuiving, opp, driehoeken=driehoeken)
@@ -941,6 +1039,18 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
                     gelukt += 1
                     methoden["als open lichaam"] += 1
                     klaar = True
+            # 3b: opgeschoond (hoekpunten op dezelfde plek samengevoegd, spijkers en samenvallende vlakken weg), eerst gesloten, dan open
+            if not klaar:
+                schoon = bouw_lichaam(g["pand"], g["lod"], z_verschuiving, opp, driehoeken=True, opschonen=True)
+                if schoon:
+                    basis, lichaam, _ = schoon
+                    for naam, body in (("opgeschoond", lichaam), ("opgeschoond en open", als_open_lichaam(lichaam))):
+                        els, _ = maak([{"basePoint": basis, "body": body, "layerIndex": laag, "id": g["id"]}])
+                        if els and lukt(els):
+                            gelukt += 1
+                            methoden[f"als een lichaam, {naam}"] += 1
+                            klaar = True
+                            break
             # 4: pas dan een lager detailniveau
             for lod in ([] if klaar else g["alternatieven"]):
                 res = bouw_lichaam(g["pand"], lod, z_verschuiving, opp)
@@ -952,6 +1062,10 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
                     gelukt += 1
                     methoden[f"lager LoD ({lod})"] += 1
                     lager.append((g["id"], g["lod"], lod, fout))
+                    if len(lager) <= 3:
+                        d_ = bouw_lichaam(g["pand"], g["lod"], z_verschuiving, opp, driehoeken=True)
+                        if d_:
+                            print(f"   pand {g['id']}: het geweigerde LoD {g['lod']}-lichaam bevat {beschrijf_lichaam(d_[1])}")
                     klaar = True
                     break
             if not klaar:
@@ -959,6 +1073,10 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
                 mislukte.append(g["id"])
                 if len(mislukte) <= 3:
                     print(f"   pand {g['id']} mislukt (LoD {g['lod']}): {fout}")
+                    for naam, kw in (("gewoon", {}), ("opgeschoond", {"opschonen": True})):
+                        d_ = bouw_lichaam(g["pand"], g["lod"], z_verschuiving, opp, driehoeken=True, **kw)
+                        if d_:
+                            print(f"      lichaam ({naam}): {beschrijf_lichaam(d_[1])}")
     print(f"\n{gelukt} panden aangemaakt, {mislukt} mislukt.")
     print("Hoe de panden zijn gemaakt: " + ", ".join(f"{n} {k_}" for k_, n in methoden.most_common()))
     if lager:
@@ -978,7 +1096,7 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
     return 0 if gelukt else 1
 
 
-def importeer_gebouwen(k, gebied, materiaal=True):
+def importeer_gebouwen(k, gebied, materiaal=True, op_nul=False):
     """Voor het kaartvenster: haalt de gebouwen voor het gebied (xmin, ymin, xmax, ymax in RD) op en maakt ze
     aan als Morphs. k is de kaart-module. Geeft het aantal aangemaakte Morphs terug."""
     global KAART
@@ -987,6 +1105,8 @@ def importeer_gebouwen(k, gebied, materiaal=True):
     argumenten = [str(float(x)) for x in gebied]
     if not materiaal:
         argumenten.append("--zonder-materiaal")
+    if op_nul:
+        argumenten.append("--op-nul")
     hoofd(argumenten)
     return LAATSTE["gelukt"]
 
