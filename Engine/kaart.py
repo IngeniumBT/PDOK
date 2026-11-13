@@ -3,6 +3,7 @@ import heapq
 import json
 import math
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -368,6 +369,49 @@ def zoek_bibliotheek(vraag, limiet=15, vernieuw=False):
     exact = BIBLIOTHEEK["klein"].get(q)
     return {"beschikbaar": True, "aantal_totaal": len(namen), "aantal": len(treffers), "resultaten": treffers[:limiet],
             "exact": bool(exact), "exacte_naam": exact or ""}
+
+
+# ---------------------------------------------------------------- een nieuwe versie? (github.com, de releasepagina van de add-on)
+UPDATE_REPO = "IngeniumBT/PDOK"
+UPDATE = {"nieuwe": None, "gecontroleerd": False, "fout": ""}
+
+
+def _versie_tuple(tekst):
+    return tuple(int(x) for x in re.findall(r"\d+", str(tekst))[:3])
+
+
+def controleer_update(huidig, timeout=6):
+    """Vraagt aan GitHub wat de nieuwste release is en bewaart in UPDATE of die nieuwer is dan de draaiende versie. Er worden geen gegevens
+    van de gebruiker verstuurd; stilzwijgend als het niet lukt (geen internet, of een repository die niet openbaar is)."""
+    UPDATE.update(gecontroleerd=True, nieuwe=None, fout="")
+    try:
+        r = requests.get(f"https://api.github.com/repos/{UPDATE_REPO}/releases/latest", timeout=timeout,
+                         headers={"Accept": "application/vnd.github+json", "User-Agent": "PDOKImport"})
+        if r.status_code != 200:
+            UPDATE["fout"] = f"HTTP {r.status_code}"
+            return None
+        d = r.json()
+        tag = str(d.get("tag_name") or "")
+        if _versie_tuple(huidig) and _versie_tuple(tag) > _versie_tuple(huidig):
+            UPDATE["nieuwe"] = {"versie": tag.lstrip("vV"), "url": d.get("html_url") or f"https://github.com/{UPDATE_REPO}/releases", "naam": d.get("name") or tag}
+    except Exception as fout:
+        UPDATE["fout"] = str(fout)[:200]
+    return UPDATE["nieuwe"]
+
+
+def toegestane_url(url):
+    """Alleen de releasepagina van de add-on mag vanuit het palet in de browser worden geopend."""
+    return str(url).startswith(f"https://github.com/{UPDATE_REPO}/")
+
+
+def _instelling_ids(html):
+    """De id's van alle invoervelden in de pagina (behalve het zoekveld en de bestandskiezer): die worden onthouden."""
+    ids = []
+    for tag in re.findall(r"<(?:input|select)\b[^>]*>", html.split("<script>")[0]):
+        m = re.search(r'\sid="([^"]+)"', tag)
+        if m and 'type="file"' not in tag and m.group(1) not in ("adres",):
+            ids.append(m.group(1))
+    return ids
 
 
 def zet_archicad_poort(poort):
@@ -1413,12 +1457,13 @@ PAGINA = """<!DOCTYPE html>
  .klein{font-size:12px;color:#555;margin:4px 0}
  #status{margin-top:12px;font-size:14px;white-space:pre-wrap}
 </style></head><body>
-<div style="position:fixed;right:6px;bottom:4px;font-size:11px;z-index:5"><a href="/test">diagnose</a> &middot; versie __VERSIE__</div>
+<div style="position:fixed;right:6px;bottom:4px;font-size:11px;z-index:5"><a href="/test">diagnose</a> &middot; versie __VERSIE__ &middot; <a href="#" id="resetinstellingen" title="Zet alle keuzes terug naar de standaardwaarden">standaardinstellingen</a></div>
 <div id="paneel">
  <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">
   <img src="/logo.png" alt="Ingenium - partner in bouwtechniek" title="Ingenium - partner in bouwtechniek" style="height:26px;width:auto;display:block">
   <span><button id="kleiner" title="Kleinere tekst in dit paneel" style="width:auto;margin:0;padding:1px 8px">A-</button> <button id="groter" title="Grotere tekst in dit paneel" style="width:auto;margin:0;padding:1px 8px">A+</button></span>
  </div>
+ <div id="updatemelding" class="klein" style="display:none;background:#fff3cd;border:1px solid #e0c36a;padding:4px 6px;margin:0 0 6px"></div>
  <h3 style="margin:6px 0">PDOK naar Archicad</h3>
  <div class="bedien">
   <div class="rij">
@@ -1481,6 +1526,7 @@ PAGINA = """<!DOCTYPE html>
  <div id="planinfo"></div>
  <button id="importeer">Importeren in Archicad</button>
  <div id="status">Nog geen gebied gekozen.</div>
+ <label class="klein" style="display:block;margin:8px 0 2px"><input type="checkbox" id="updatecontrole" checked> Bij het starten controleren op een nieuwe versie (via github.com; er wordt niets van jou verstuurd)</label>
  <progress id="balk" max="100" value="0" style="width:100%;display:none"></progress>
  <div id="timer" class="klein" style="display:none;margin:2px 0"></div>
  <button id="stop" style="display:none">Stop de import</button>
@@ -1665,6 +1711,7 @@ fetch('/lagen').then(r => r.json()).then(lijst => {
     rij.appendChild(pen);
     groepen[sleutel].appendChild(rij);
   });
+  instellingen().then(pasLagenToe);                                // de onthouden vinkjes en pennen terugzetten
 }).catch(e => { doos.textContent = 'Lagen laden mislukt: ' + e; });
 
 function wisPlan() {
@@ -1728,6 +1775,7 @@ function gebiedTekst(g) {
 function wisGebied() {
   gebied = null; hoeken = [];
   if (vlak) { map.removeLayer(vlak); vlak = null; }
+  planOpslaan();
 }
 map.on('mousedown', e => {
   const oe = e.originalEvent;
@@ -1759,6 +1807,7 @@ function eindeSlepen() {
   gebied = g;
   toonGebied(g);
   status.textContent = gebiedTekst(g);
+  planOpslaan();
 }
 window.addEventListener('mouseup', eindeSlepen);               // ook als je buiten de kaart loslaat
 document.addEventListener('keydown', e => {
@@ -1800,6 +1849,7 @@ function bevestig(tekst) {
 
 document.getElementById('importeer').onclick = async () => {
   if (!gebied) { status.textContent = 'Kies eerst een gebied op de kaart.'; return; }
+  opslaanNu();                                                     // de keuzes van deze import onthouden
   const aangevinkt = vinkjes().filter(v => v.checked);
   const lagen = aangevinkt.map(v => v.value);
   const plan = planToken;
@@ -1869,6 +1919,66 @@ document.getElementById('stop').onclick = async () => {
   status.textContent = 'Stoppen na het huidige blok...';
   try { await fetch('/stop', {method: 'POST', body: '{}'}); } catch (e) {}
 };
+
+// ---- Instellingen onthouden (in een bestand naast de motor: ze blijven bestaan na een update van de add-on)
+const INSTELLING_IDS = __INSTELLING_IDS__;
+let _instellingen = null, opslaanTimer = null, herstellen = false;
+function instellingen() { return _instellingen || (_instellingen = fetch('/instellingen').then(r => r.json()).catch(() => ({}))); }
+function verzamelInstellingen() {
+  const o = {velden: {}, lagen: {}, pennen: {}};
+  INSTELLING_IDS.forEach(id => { const e = document.getElementById(id); if (e) o.velden[id] = (e.type === 'checkbox' || e.type === 'radio') ? !!e.checked : e.value; });
+  const pt = document.getElementById('perceelteksten'); if (pt) o.velden.perceelteksten = !!pt.checked;
+  vinkjes().forEach(v => { o.lagen[v.value] = !!v.checked; });
+  [...doos.querySelectorAll('input.pen')].forEach(p => { if (p.value !== '') o.pennen[p.dataset.laag] = p.value; });
+  if (gebied) o.gebied = gebied;
+  const c = map.getCenter(); o.kaart = {lat: c.lat, lng: c.lng, zoom: map.getZoom()};
+  return o;
+}
+function opslaanNu() {
+  if (herstellen) return;
+  fetch('/instellingen', {method: 'POST', body: JSON.stringify(verzamelInstellingen())}).catch(() => {});
+}
+function planOpslaan() { if (herstellen) return; clearTimeout(opslaanTimer); opslaanTimer = setTimeout(opslaanNu, 800); }
+function pasVeldenToe(o) {
+  const v = (o && o.velden) || {};
+  Object.keys(v).forEach(id => {
+    if (INSTELLING_IDS.indexOf(id) < 0) return;                    // alleen velden die de pagina kent
+    const e = document.getElementById(id);
+    if (!e || e.disabled) return;
+    if (e.type === 'checkbox' || e.type === 'radio') e.checked = !!v[id]; else e.value = v[id];
+  });
+  if (v.drie_boomobject !== undefined) boomZoek(boomInvoer.value);
+}
+function pasLagenToe(o) {
+  if (!o) return;
+  vinkjes().forEach(vk => { if (o.lagen && vk.value in o.lagen) vk.checked = !!o.lagen[vk.value]; });
+  [...doos.querySelectorAll('input.pen')].forEach(p => { if (o.pennen && p.dataset.laag in o.pennen) p.value = o.pennen[p.dataset.laag]; });
+  const pt = document.getElementById('perceelteksten'); if (pt && o.velden && 'perceelteksten' in o.velden) pt.checked = !!o.velden.perceelteksten;
+}
+function pasGebiedToe(o) {
+  if (o && o.gebied && o.gebied.xmin !== undefined) { gebied = o.gebied; toonGebied(gebied); status.textContent = 'Vorig gebied teruggezet. ' + gebiedTekst(gebied); }
+  if (o && o.kaart && isFinite(o.kaart.lat) && isFinite(o.kaart.lng)) map.setView([o.kaart.lat, o.kaart.lng], o.kaart.zoom || 12);
+}
+instellingen().then(o => { pasVeldenToe(o); pasGebiedToe(o); });
+const paneelEl = document.getElementById('paneel');
+paneelEl.addEventListener('change', planOpslaan);
+paneelEl.addEventListener('input', planOpslaan);
+map.on('moveend', planOpslaan);
+document.getElementById('resetinstellingen').onclick = async ev => {
+  if (ev && ev.preventDefault) ev.preventDefault();
+  herstellen = true;
+  try { await fetch('/instellingen', {method: 'POST', body: JSON.stringify({wis: true})}); } catch (e) {}
+  location.reload();
+};
+// ---- een nieuwe versie?
+fetch('/update').then(r => r.json()).then(d => {
+  if (!d || !d.nieuwe) return;
+  const m = document.getElementById('updatemelding'); m.style.display = 'block'; m.textContent = '';
+  m.appendChild(document.createTextNode('Er is een nieuwe versie beschikbaar: ' + d.nieuwe.versie + '. '));
+  const a = document.createElement('a'); a.href = '#'; a.textContent = 'Bekijk de nieuwe versie';
+  a.onclick = ev => { if (ev && ev.preventDefault) ev.preventDefault(); fetch('/openen?url=' + encodeURIComponent(d.nieuwe.url)); };
+  m.appendChild(a);
+}).catch(() => {});
 </script></body></html>
 """
 
@@ -1927,7 +2037,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.stuur_json(antwoord)
         else:
             pagina = (PAGINA.replace("__MAX_PLAN_MB__", str(MAX_PLAN_MB)).replace("__MAX_ZIJDE__", str(MAX_ZIJDE))
-                      .replace("__BESCHIKBAAR__", json.dumps(BESCHIKBAAR)).replace("__VERSIE__", VERSIE))
+                      .replace("__BESCHIKBAAR__", json.dumps(BESCHIKBAAR)).replace("__VERSIE__", VERSIE)
+                      .replace("__INSTELLING_IDS__", json.dumps(_instelling_ids(PAGINA))))
             self.stuur(pagina.encode("utf-8"), "text/html; charset=utf-8")
 
     def do_POST(self):

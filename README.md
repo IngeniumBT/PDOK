@@ -10,6 +10,11 @@ Eén `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat ee
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.15.1: instellingen onthouden en een melding bij een nieuwe versie.** Het palet bewaart de aangevinkte lagen en pennen, de 3D-opties, de boomnaam, het laatst getekende gebied en de kaartpositie in
+  `%LOCALAPPDATA%\PDOKImport\instellingen.json` (naast de motor, dus ze overleven een update; het bestand wordt in een keer weggeschreven, een beschadigd bestand geeft gewoon de beginwaarden).
+  De velden die worden onthouden komen uit de pagina zelf, dus nieuwe velden doen vanzelf mee. *standaardinstellingen* onderaan zet alles terug. De motor vraagt bij het starten aan GitHub
+  (`releases/latest` van `IngeniumBT/PDOK`) of er een nieuwere release is; zo ja, dan staat er bovenaan een melding met een link (alleen die releasepagina kan vanuit het palet in de browser worden geopend). Uit te
+  zetten met het vinkje onderaan. Geen C++-wijziging, maar het `.apx` moet wel opnieuw gebouwd worden.
 - **0.15.0: een zoekvak voor de bomen.** Nieuwe opdracht `GetLibraryObjectNames` in de add-on (alle plaatsbare bibliotheekobjecten). De motor bewaart de lijst; het veld bij de
   bomen is nu een zoekvak met een uitklaplijst (alle woorden moeten in de naam voorkomen, namen die ermee beginnen eerst), met een melding of de naam bestaat. Bij het importeren wordt
   de naam gecontroleerd en met de hoofdletters van de bibliotheek doorgegeven; een onbekende naam geeft een foutmelding voordat er iets wordt gemaakt. Is de bibliotheek niet te lezen (een

@@ -368,6 +368,19 @@ class Handler(BasisHandler):
                 self.wfile.write(data)
             except OSError:
                 self._stuur(404, "", "text/plain")
+        elif pad == "/instellingen":
+            self._stuur(200, json.dumps(lees_instellingen()), "application/json")
+        elif pad == "/update":
+            self._stuur(200, json.dumps({"nieuwe": kaart.UPDATE["nieuwe"], "gecontroleerd": kaart.UPDATE["gecontroleerd"]} if kaart is not None else {"nieuwe": None}), "application/json")
+        elif pad == "/openen":
+            from urllib.parse import parse_qs
+            url = (parse_qs(urlparse(self.path).query).get("url") or [""])[0]
+            if kaart is not None and kaart.toegestane_url(url):
+                import webbrowser
+                webbrowser.open(url)
+                self._stuur(200, json.dumps({"geopend": True}), "application/json")
+            else:
+                self._stuur(403, json.dumps({"geopend": False}), "application/json")
         elif pad == "/bibliotheek":
             from urllib.parse import parse_qs
             q = parse_qs(urlparse(self.path).query)
@@ -412,6 +425,23 @@ class Handler(BasisHandler):
             except Exception as fout:  # noqa: BLE001
                 antwoord = {"succeeded": False, "error": {"message": type(fout).__name__ + ": " + str(fout)}}
             self._stuur(200, json.dumps(antwoord), "application/json")
+        elif pad == "/instellingen":
+            lengte = int(self.headers.get("Content-Length") or 0)
+            body = self.rfile.read(lengte) if lengte else b"{}"
+            try:
+                d = json.loads(body.decode("utf-8") or "{}")
+                if not isinstance(d, dict):
+                    raise ValueError("geen object")
+                if d.get("wis"):
+                    try:
+                        os.remove(INSTELLINGEN_PAD)
+                    except OSError:
+                        pass
+                else:
+                    schrijf_instellingen(d)
+                self._stuur(200, json.dumps({"opgeslagen": True}), "application/json")
+            except (ValueError, OSError) as fout:
+                self._stuur(400, json.dumps({"opgeslagen": False, "fout": str(fout)}), "application/json")
         elif pad in ("/terreincontrole", "/terreinwissen"):
             import contextlib
             import io
@@ -434,6 +464,40 @@ class Handler(BasisHandler):
             self._stuur(500, json.dumps({"fout": "het onderdeel met de kaart is niet geladen"}), "application/json")
         else:
             super().do_POST()
+
+
+INSTELLINGEN_PAD = os.path.join(os.path.dirname(os.environ["PDOK_CACHE"]), "instellingen.json")     # %LOCALAPPDATA%\\PDOKImport\\instellingen.json
+MAX_INSTELLINGEN = 256 * 1024
+
+
+def lees_instellingen():
+    try:
+        with open(INSTELLINGEN_PAD, encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def schrijf_instellingen(d):
+    """Schrijft de instellingen in een keer weg (eerst een tijdelijk bestand, zodat een onderbreking het bestand niet beschadigt)."""
+    tekst = json.dumps(d, ensure_ascii=False)
+    if len(tekst) > MAX_INSTELLINGEN:
+        raise ValueError("de instellingen zijn te groot")
+    os.makedirs(os.path.dirname(INSTELLINGEN_PAD), exist_ok=True)
+    tijdelijk = INSTELLINGEN_PAD + ".tmp"
+    with open(tijdelijk, "w", encoding="utf-8") as f:
+        f.write(tekst)
+    os.replace(tijdelijk, INSTELLINGEN_PAD)
+
+
+def start_updatecontrole():
+    """Controleert op de achtergrond of er een nieuwere versie is (tenzij de gebruiker dat heeft uitgezet)."""
+    try:
+        if kaart is not None and lees_instellingen().get("velden", {}).get("updatecontrole", True) is not False:
+            kaart.controleer_update(VERSIE)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def ruim_oude_versies():
@@ -505,6 +569,7 @@ def main():
     os.replace(tijdelijk, args.port_file)                      # de add-on leest dit bestand pas als het compleet is
     print("motor luistert op poort", poort, flush=True)
     threading.Thread(target=ruim_oude_versies, daemon=True).start()
+    threading.Thread(target=start_updatecontrole, daemon=True).start()
     server.serve_forever()
     print("motor gestopt", flush=True)
 
