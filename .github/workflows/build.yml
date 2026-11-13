@@ -2,15 +2,18 @@ name: Bouw de add-on
 
 on:
   push:
-  workflow_dispatch:
+  workflow_dispatch:      # ook handmatig te starten: tabblad Actions > Bouw de add-on > Run workflow
 
 env:
+  # De DevKit van Graphisoft voor Archicad 29 (https://github.com/GRAPHISOFT/archicad-api-devkit/releases)
   AC_VERSION: "29"
   DEVKIT_RELEASE: "29.3100"
 
 jobs:
   build:
     runs-on: windows-2022
+    permissions:
+      contents: write     # nodig om het .apx aan een release te hangen
 
     steps:
       - name: De bestanden ophalen
@@ -36,11 +39,40 @@ jobs:
         shell: pwsh
         run: |
           cmake -B "Build/AC$env:AC_VERSION" -G "Visual Studio 17 2022" -A x64 -T v143 `
-            -DAC_VERSION="$env:AC_VERSION" -DAC_API_DEVKIT_DIR="$env:DEVKIT_SUPPORT" .
+            -DAC_VERSION="$env:AC_VERSION" -DAC_API_DEVKIT_DIR="$env:DEVKIT_SUPPORT" . 2>&1 | Tee-Object -FilePath configure.log
+          if ($global:LASTEXITCODE -ne 0) { exit $global:LASTEXITCODE }
 
       - name: De add-on bouwen
         shell: pwsh
-        run: cmake --build "Build/AC$env:AC_VERSION" --config RelWithDebInfo
+        run: |
+          cmake --build "Build/AC$env:AC_VERSION" --config RelWithDebInfo 2>&1 | Tee-Object -FilePath build.log
+          if ($global:LASTEXITCODE -ne 0) { exit $global:LASTEXITCODE }
+
+      - name: De foutmeldingen tonen (alleen als het misging)
+        if: failure()
+        shell: pwsh
+        run: |
+          # Zet de eerste foutregels als meldingen bovenaan de runpagina, zodat je niet door het logboek hoeft te zoeken.
+          $regels = @()
+          foreach ($f in "configure.log", "build.log") {
+            if (Test-Path $f) {
+              $regels += Get-Content $f | Where-Object { $_ -match 'error|fatal error|CMake Error|Traceback|FAILED' } | Select-Object -First 8
+            }
+          }
+          foreach ($r in ($regels | Select-Object -First 10)) {
+            $tekst = ($r -replace '%', '%25') -replace "`r|`n", ' '
+            Write-Host "::error::$tekst"
+          }
+
+      - name: Het logboek bewaren
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logboek
+          path: |
+            configure.log
+            build.log
+          if-no-files-found: ignore
 
       - name: Het .apx-bestand bewaren
         uses: actions/upload-artifact@v4
@@ -48,3 +80,9 @@ jobs:
           name: PDOKImport_AC29_Win
           path: Build/AC29/RelWithDebInfo/*.apx
           if-no-files-found: error
+
+      - name: Het .apx aan de release hangen (alleen bij een versie-label zoals v0.13.0)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Build/AC29/RelWithDebInfo/*.apx
