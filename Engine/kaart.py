@@ -123,6 +123,7 @@ _POORT = {"n": None}
 TIJDSLIMIET = (10, 900)   # seconden: (verbinden, wachten op een antwoord van Archicad)
 
 
+VERSIE = "onbekend"      # de motor zet dit uit versie.txt
 NAMESPACE = "PDOKImport"   # de opdrachten van de add-on zelf (niet meer van Tapir)
 
 # Wat de add-on al kan. Wat nog niet beschikbaar is, wordt in de pagina uitgeschakeld en overgeslagen.
@@ -1107,6 +1108,7 @@ def importeer(aanvraag):
 
     Een groot gebied wordt in blokken verwerkt; de voortgang staat in JOB zodat de webpagina die kan tonen."""
     x_min, y_min, x_max, y_max = aanvraag["xmin"], aanvraag["ymin"], aanvraag["xmax"], aanvraag["ymax"]
+    print(f"PDOK Import versie {VERSIE}")
     laad_projectlocatie()                       # het Survey Point: bepaalt hoe RD naar het project wordt omgerekend (nu uit)
     if PROJECTLOCATIE_GEBRUIKEN:
         print(PROJECT["tekst"])
@@ -1359,7 +1361,7 @@ PAGINA = """<!DOCTYPE html>
  .klein{font-size:12px;color:#555;margin:4px 0}
  #status{margin-top:12px;font-size:14px;white-space:pre-wrap}
 </style></head><body>
-<div style="position:fixed;right:6px;bottom:4px;font-size:11px;z-index:5"><a href="/test">diagnose</a></div>
+<div style="position:fixed;right:6px;bottom:4px;font-size:11px;z-index:5"><a href="/test">diagnose</a> &middot; versie __VERSIE__</div>
 <div id="paneel">
  <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">
   <img src="/logo.png" alt="Ingenium - partner in bouwtechniek" title="Ingenium - partner in bouwtechniek" style="height:26px;width:auto;display:block">
@@ -1835,7 +1837,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.stuur_json(antwoord)
         else:
             pagina = (PAGINA.replace("__MAX_PLAN_MB__", str(MAX_PLAN_MB)).replace("__MAX_ZIJDE__", str(MAX_ZIJDE))
-                      .replace("__BESCHIKBAAR__", json.dumps(BESCHIKBAAR)))
+                      .replace("__BESCHIKBAAR__", json.dumps(BESCHIKBAAR)).replace("__VERSIE__", VERSIE))
             self.stuur(pagina.encode("utf-8"), "text/html; charset=utf-8")
 
     def do_POST(self):

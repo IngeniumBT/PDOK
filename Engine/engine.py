@@ -37,6 +37,17 @@ except Exception:  # noqa: BLE001
     kaart = None
     KAART_FOUT = traceback.format_exc()
 
+def _lees_versie():
+    try:
+        with open(os.path.join(HIER, "versie.txt"), encoding="utf-8") as f:
+            return f.read().strip() or "onbekend"
+    except OSError:
+        return "onbekend"
+
+
+VERSIE = _lees_versie()
+if kaart is not None:
+    kaart.VERSIE = VERSIE
 START = time.time()
 SERVER = {"obj": None}
 ARCHICAD = {"port": 0}
@@ -309,7 +320,7 @@ laadInfo();
 
 
 def info():
-    return {"python": sys.version.split()[0], "executable": sys.executable, "pid": os.getpid(),
+    return {"versie": VERSIE, "python": sys.version.split()[0], "executable": sys.executable, "pid": os.getpid(),
             "uptime_s": round(time.time() - START, 1), "platform": platform.platform(),
             "archicad_port": ARCHICAD["port"], "kaart_geladen": kaart is not None,
             "cache": os.environ.get("PDOK_CACHE", "")}
@@ -462,7 +473,7 @@ def main():
     if kaart is not None:
         kaart.zet_archicad_poort(args.archicad_port or 19723)
 
-    print("motor start, Python", sys.version.split()[0], "pid", os.getpid(), "Archicad-poort", args.archicad_port, flush=True)
+    print("PDOK Import versie", VERSIE, "- motor start, Python", sys.version.split()[0], "pid", os.getpid(), "Archicad-poort", args.archicad_port, flush=True)
     if KAART_FOUT:
         print("LET OP: kaart.py kon niet worden geladen:\n" + KAART_FOUT, flush=True)
     bewaak_ouder(args.parent_pid)

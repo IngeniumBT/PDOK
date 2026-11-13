@@ -69,11 +69,20 @@ def main() -> int:
         print(f"FOUT: {ENGINE / 'engine.py'} ontbreekt.", file=sys.stderr)
         return 1
     vendor_requests(ENGINE / "lib")
+    versie = "onbekend"
+    try:                                           # het versienummer staat in AddOnVersion.hpp; de motor toont het in het palet en in het logboek
+        import re
+        m = re.search(r'ADDON_VERSION\s+"([^"]+)"', (SOURCES / "AddOnVersion.hpp").read_text(encoding="utf-8"))
+        versie = m.group(1) if m else versie
+    except OSError:
+        pass
     app = SOURCES / "engine-app.zip"
     with zipfile.ZipFile(app, "w", zipfile.ZIP_DEFLATED) as z:
         for p in sorted(ENGINE.rglob("*")):
             if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc":
                 z.write(p, p.relative_to(ENGINE).as_posix())
+        z.writestr("versie.txt", versie)
+    print(f"versie:           {versie}")
     print(f"python-embed.zip: {embed.stat().st_size / 1024 / 1024:.1f} MB")
     print(f"engine-app.zip:   {app.stat().st_size / 1024:.1f} KB")
     return 0

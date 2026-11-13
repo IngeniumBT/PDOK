@@ -1,6 +1,6 @@
 # PDOK Import voor Archicad - handleiding voor proefgebruikers
 
-Versie 0.14.2 (proefversie). Deze add-on haalt gegevens van PDOK (de BGT, het kadaster, bestemmingsplannen en de 3D Basisvoorziening) op
+Versie 0.14.3 (proefversie). Deze add-on haalt gegevens van PDOK (de BGT, het kadaster, bestemmingsplannen en de 3D Basisvoorziening) op
 en zet ze in je Archicad-project: als lijnen en vlakken, als 3D-gebouwen, als terrein en als bomen.
 
 ## Wat heb je nodig
@@ -24,7 +24,7 @@ Archicad. Een oude versie wordt vanzelf opgeruimd.
 
 ## Gebruiken
 
-1. Kies **PDOK Import > PDOK Import openen...**. Er opent een palet met een **kaart** en daarnaast de opties. De eerste keer duurt het
+1. Kies **PDOK Import > PDOK Import openen...**. Er opent een palet met een **kaart** en daarnaast de opties. Onderaan in het palet staat het **versienummer** (en een link *diagnose*); het staat ook bovenaan elk logboek. De eerste keer duurt het
    openen een paar seconden.
 2. **Zoek je locatie**: typ een adres bij *Zoek een adres* en klik op *Zoeken*, of verschuif en zoom de kaart (*Kaart uitzoomen* toont heel Nederland).
 3. **Teken je importgebied**: klik op *Gebied tekenen* en sleep een rechthoek over de kaart, of houd **Shift** ingedrukt en sleep. Slepen zonder
