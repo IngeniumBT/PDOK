@@ -6,6 +6,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import uuid
 import copy
 import webbrowser
@@ -1022,7 +1023,7 @@ def importeer_gebouwen_uit_venster(gebied, materiaal):
         return 0
 
 
-def importeer_bomen_uit_venster(gebied, object_naam):
+def importeer_bomen_uit_venster(gebied, object_naam, vast_niveau=None):
     if bomen is None:
         print("3D-bomen overgeslagen: bomen.py (met terrein.py en drie_d.py) staat niet naast kaart.py.")
         return 0
@@ -1033,7 +1034,7 @@ def importeer_bomen_uit_venster(gebied, object_naam):
     try:
         uitkomst = bomen.plaats_bomen(
             sys.modules[__name__], gebied,
-            {"object": (object_naam or "").strip() or bomen.STANDAARD_OBJECT, "max": 0},
+            {"object": (object_naam or "").strip() or bomen.STANDAARD_OBJECT, "max": 0, "z": vast_niveau},
             voortgang=meld_voortgang_bomen, stop=moet_stoppen)
         return uitkomst["gelukt"]
     except Exception as fout:
@@ -1050,7 +1051,7 @@ def meld_voortgang_bomen(tekst, fractie=None):
 BOMEN_VOORTGANG = {"binnen": None}
 
 
-def importeer_terrein_uit_venster(gebied, naadsluiting=True, overslaan="", skirt=None, diepte=None, dekken=True):
+def importeer_terrein_uit_venster(gebied, naadsluiting=True, overslaan="", skirt=None, diepte=None, dekken=True, vlak=None):
     if terrein is None:
         print("3D-terrein overgeslagen: terrein.py ontbreekt.")
         return 0
@@ -1066,14 +1067,15 @@ def importeer_terrein_uit_venster(gebied, naadsluiting=True, overslaan="", skirt
         if sla_over:
             print("Typen die worden overgeslagen:", ", ".join(sla_over))
         return terrein.importeer_terrein(sys.modules[__name__], gebied, naadsluiting=naadsluiting,
-                                         sla_over=sla_over, skirt=skirt, diepte=diepte, dekken=dekken)
+                                         sla_over=sla_over, skirt=skirt, diepte=diepte, dekken=dekken, vlak=vlak)
     except Exception as fout:
         print("3D-terrein importeren mislukt:", fout)
         return 0
 
 
 SERVER = {"poort": SERVER_POORT}
-JOB = {"id": 0, "status": "inactief", "tekst": "", "fractie": 0.0, "aantal": None, "fout": None, "stop": False}
+JOB = {"id": 0, "status": "inactief", "tekst": "", "fractie": 0.0, "aantal": None, "fout": None, "stop": False,
+       "start": None, "einde": None, "fases": []}
 JOB_SLOT = threading.Lock()
 
 
@@ -1131,26 +1133,56 @@ def importeer(aanvraag):
         terrein.VOORTGANG = binnen
         terrein.STOP = moet_stoppen
     totaal = 0
+    JOB["fases"] = []
+    start_alles = time.time()
+
+    def tijd(naam, functie):
+        """Voert een onderdeel uit en bewaart hoe lang het duurde (voor de timer in het palet en de samenvatting)."""
+        t0 = time.time()
+        try:
+            return functie()
+        finally:
+            JOB["fases"].append([naam, round(time.time() - t0, 1)])
+
+    try:
+        totaal = _importeer_onderdelen(aanvraag, begin, binnen, tijd, (x_min, y_min, x_max, y_max))
+    finally:
+        if JOB["fases"]:
+            print("\nDuur: " + ", ".join(f"{n} {_duur(sec)}" for n, sec in JOB["fases"]) + f" - totaal {_duur(time.time() - start_alles)}")
+    return totaal
+
+
+def _duur(seconden):
+    seconden = int(round(seconden))
+    if seconden >= 3600:
+        return f"{seconden // 3600}:{seconden % 3600 // 60:02d}:{seconden % 60:02d}"
+    return f"{seconden // 60}:{seconden % 60:02d}"
+
+
+def _importeer_onderdelen(aanvraag, begin, binnen, tijd, gebied):
+    x_min, y_min, x_max, y_max = gebied
+    totaal = 0
     if aanvraag.get("gebouwen"):
         begin("3D-gebouwen")
-        totaal += _importeer(aanvraag, "gebouwen")
+        totaal += tijd("3D-gebouwen", lambda: _importeer(aanvraag, "gebouwen"))
     if aanvraag.get("terrein") and not moet_stoppen():
         begin("3D-terrein")
-        totaal += _importeer(aanvraag, "terrein")         # wisselt alleen zelf van venster als meshes mislukken
+        totaal += tijd("3D-terrein", lambda: _importeer(aanvraag, "terrein"))     # wisselt alleen zelf van venster als meshes mislukken
     if aanvraag.get("bomen") and not moet_stoppen():
         begin("3D-bomen")
         BOMEN_VOORTGANG["binnen"] = binnen
         try:
-            totaal += _importeer(aanvraag, "bomen")
+            totaal += tijd("3D-bomen", lambda: _importeer(aanvraag, "bomen"))
         finally:
             BOMEN_VOORTGANG["binnen"] = None
     if (aanvraag.get("lagen") or aanvraag.get("plan")) and not moet_stoppen():
         with PlattegrondActief():
             if aanvraag.get("plan"):
                 begin("Bestemmingsplan")
-                totaal += _importeer(aanvraag, "plan")
+                totaal += tijd("Bestemmingsplan", lambda: _importeer(aanvraag, "plan"))
             if aanvraag.get("lagen") and not moet_stoppen():
                 begin("2D-lagen")
+                t_lagen = time.time()
                 blokken = blokken_2d((x_min, y_min, x_max, y_max))
                 gedeeld = {}
                 for n, bl in enumerate(blokken, 1):
@@ -1163,6 +1195,7 @@ def importeer(aanvraag):
                               f"y {bl[1]:.0f}-{bl[3]:.0f}) ===")
                     totaal += _importeer(dict(aanvraag, xmin=bl[0], ymin=bl[1], xmax=bl[2], ymax=bl[3],
                                               _gedeeld=gedeeld, _blokken=len(blokken)), "lagen")
+                JOB["fases"].append(["2D-lagen", round(time.time() - t_lagen, 1)])
     return totaal
 
 
@@ -1178,12 +1211,14 @@ def _importeer(aanvraag, deel="alles"):
         return importeer_gebouwen_uit_venster(
             (x_min, y_min, x_max, y_max), bool(aanvraag.get("gebouwenmateriaal", True)))
     if deel == "bomen":
-        return importeer_bomen_uit_venster((x_min, y_min, x_max, y_max), aanvraag.get("boomobject", ""))
+        niveau = (terrein.LAATSTE_VLAK_NIVEAU if (terrein is not None and aanvraag.get("terrein") and aanvraag.get("terreinvlak")) else None)
+        return importeer_bomen_uit_venster((x_min, y_min, x_max, y_max), aanvraag.get("boomobject", ""), niveau)
     if deel == "terrein":
         return importeer_terrein_uit_venster(
             (x_min, y_min, x_max, y_max), bool(aanvraag.get("terreinnaad", True)),
             aanvraag.get("terreinoverslaan", ""), aanvraag.get("terreinskirt"), aanvraag.get("terreindiepte"),
-            bool(aanvraag.get("terreindekken", True)))
+            bool(aanvraag.get("terreindekken", True)),
+            (aanvraag.get("terreinvlakmodus") or "gemiddeld", aanvraag.get("terreinvlakwaarde")) if aanvraag.get("terreinvlak") else None)
     if GEOREFERENTIE == "rd":
         midden_x = midden_y = 0
     else:
@@ -1361,11 +1396,23 @@ PAGINA = """<!DOCTYPE html>
    <input type="text" id="drie_diepte" value="1" title="Diepte van de onderkant onder het laagste punt, in meter" style="flex:0 0 52px;width:52px"> <span class="klein">m</span>
   </div>
   <label class="klein" style="display:block;margin:2px 0"><input type="checkbox" id="drie_dekken" checked> Viaducten en bruggen meenemen (als dun dek)</label>
+  <label class="klein" style="display:block;margin:2px 0"><input type="checkbox" id="drie_vlak"> Vlak terrein (bovenkant op een niveau)</label>
+  <div class="rij" style="margin:2px 0 6px;align-items:center">
+   <select id="drie_vlakmodus" disabled style="flex:1 1 auto;min-width:0"><option value="gemiddeld" selected>gemiddelde hoogte</option><option value="laagste">laagste punt</option><option value="hoogste">hoogste punt</option><option value="eigen">eigen niveau</option></select>
+   <input type="text" id="drie_vlakwaarde" value="0" disabled title="Niveau in meter NAP" style="flex:0 0 56px;width:56px"> <span class="klein">m NAP</span>
+  </div>
 
   <label><input type="checkbox" id="drie_bomen"> Bomen (BGT-vegetatiepunten, als 3D-object op het terrein)</label>
   <input type="text" id="drie_boomobject" value="Boom stedenbouw 02" placeholder="Naam van het bibliotheekobject">
   <div class="klein">Het eerste keer ophalen kan een minuut duren (tegel van enkele tientallen MB). Wat al bestaat
   wordt overgeslagen. De oppervlakken van het terrein stel je zelf per laag in; zie de terminal.</div>
+  <details id="hulp" style="margin:6px 0"><summary class="klein"><b>Hulpmiddelen voor het terrein</b></summary>
+   <div class="rij" style="margin:6px 0">
+    <button id="drie_controle" class="compact" title="Vergelijkt het terrein in Archicad met de bron voor het getekende gebied en meldt wat ontbreekt">Terreincontrole</button>
+    <button id="drie_wis" class="compact" title="Verwijdert alle meshes op de PDOK-terreinlagen (Ongedaan maken in Archicad brengt ze terug)">Terrein wissen</button>
+   </div>
+   <pre id="drie_uit" class="klein" style="display:none;white-space:pre-wrap;max-height:260px;overflow:auto;background:#fff;border:1px solid #ccc;padding:6px;margin:0 0 6px"></pre>
+  </details>
  </div>
  <b>Bestemmingsplan</b>
  <input type="file" id="planbestand" accept=".gml,.xml,.zip" style="display:none">
@@ -1379,6 +1426,7 @@ PAGINA = """<!DOCTYPE html>
  <button id="importeer">Importeren in Archicad</button>
  <div id="status">Nog geen gebied gekozen.</div>
  <progress id="balk" max="100" value="0" style="width:100%;display:none"></progress>
+ <div id="timer" class="klein" style="display:none;margin:2px 0"></div>
  <button id="stop" style="display:none">Stop de import</button>
 </div>
 <div id="map"></div>
@@ -1416,6 +1464,50 @@ zetSchaal(schaal);
 document.getElementById('kleiner').onclick = () => zetSchaal(schaal - 0.1);
 document.getElementById('groter').onclick = () => zetSchaal(schaal + 0.1);
 const BESCHIKBAAR = __BESCHIKBAAR__;
+// De timer: hoe lang de import duurt, en daarna hoe lang elk onderdeel kostte.
+const timerEl = document.getElementById('timer');
+let timerTik = null, timerT0 = 0;
+const duurTekst = sec => { sec = Math.max(0, Math.round(sec)); const u = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  return (u ? u + ':' + String(m).padStart(2, '0') : String(m)) + ':' + String(s).padStart(2, '0'); };
+function timerStop() { if (timerTik) { clearInterval(timerTik); timerTik = null; } }
+function timerStart() {
+  timerStop(); timerT0 = Date.now(); timerEl.style.display = 'block'; timerEl.textContent = 'Verstreken: 0:00';
+  timerTik = setInterval(() => { timerEl.textContent = 'Verstreken: ' + duurTekst((Date.now() - timerT0) / 1000); }, 1000);
+}
+function timerKlaar(v) {
+  timerStop();
+  const totaal = (typeof v.verstreken === 'number') ? v.verstreken : (Date.now() - timerT0) / 1000;
+  const fases = (v.fases || []).map(f => f[0] + ' ' + duurTekst(f[1])).join(' \u00b7 ');
+  timerEl.textContent = (v.status === 'fout' ? 'Duur tot de fout: ' : v.status === 'gestopt' ? 'Gestopt na ' : 'Klaar in ') + duurTekst(totaal) + (fases ? '  (' + fases + ')' : '');
+}
+// Het vlakke terrein: het niveau-veld hoort bij 'eigen niveau'.
+function zetVlak() {
+  const aan = document.getElementById('drie_vlak').checked, modus = document.getElementById('drie_vlakmodus');
+  modus.disabled = !aan; document.getElementById('drie_vlakwaarde').disabled = !(aan && modus.value === 'eigen');
+}
+document.getElementById('drie_vlak').onchange = zetVlak;
+document.getElementById('drie_vlakmodus').onchange = zetVlak;
+// De hulpmiddelen voor het terrein (controle en wissen).
+async function terreinActie(pad, gebiedNodig) {
+  const uit = document.getElementById('drie_uit');
+  if (gebiedNodig && !gebied) { status.textContent = 'Teken eerst een gebied voor de terreincontrole.'; return; }
+  uit.style.display = 'block'; uit.textContent = 'Bezig...';
+  try {
+    const r = await fetch(pad, {method: 'POST', body: JSON.stringify(gebied || {})});
+    const d = await r.json(); uit.textContent = d.tekst || JSON.stringify(d);
+  } catch (e) { uit.textContent = 'Mislukt: ' + e; }
+}
+const controleKnop = document.getElementById('drie_controle'), wisKnop = document.getElementById('drie_wis');
+if (controleKnop) controleKnop.onclick = () => terreinActie('/terreincontrole', true);
+if (wisKnop) wisKnop.onclick = () => {
+  if (!wisKnop.dataset.klaar) {                      // eerst een tweede klik: wissen kan niet per ongeluk
+    wisKnop.dataset.klaar = '1'; wisKnop.textContent = 'Klik nogmaals om te wissen';
+    setTimeout(() => { delete wisKnop.dataset.klaar; wisKnop.textContent = 'Terrein wissen'; }, 5000);
+    return;
+  }
+  delete wisKnop.dataset.klaar; wisKnop.textContent = 'Terrein wissen';
+  terreinActie('/terreinwissen', false);
+};
 function nogNiet(ids) {                                          // een onderdeel dat de add-on nog niet kan
   ids.forEach(id => {
     const e = document.getElementById(id); if (!e) return;
@@ -1426,7 +1518,7 @@ function nogNiet(ids) {                                          // een onderdee
   });
 }
 if (!BESCHIKBAAR.gebouwen) nogNiet(['drie_gebouwen', 'drie_materiaal']);
-if (!BESCHIKBAAR.terrein) nogNiet(['drie_terrein', 'drie_naad', 'drie_overslaan', 'drie_skirt', 'drie_diepte', 'drie_dekken']);
+if (!BESCHIKBAAR.terrein) nogNiet(['drie_terrein', 'drie_naad', 'drie_overslaan', 'drie_skirt', 'drie_diepte', 'drie_dekken', 'drie_vlak', 'drie_vlakmodus', 'drie_vlakwaarde', 'drie_controle', 'drie_wis']);
 if (!BESCHIKBAAR.tekst) nogNiet(['planteksten']);
 const MAX_ZIJDE = __MAX_ZIJDE__;
 const planInfo = document.getElementById('planinfo');
@@ -1635,6 +1727,10 @@ document.getElementById('importeer').onclick = async () => {
   const terreinoverslaan = document.getElementById('drie_overslaan').value;
   const terreinskirt = document.getElementById('drie_skirt').value;
   const terreindekken = document.getElementById('drie_dekken').checked;
+  const terreinvlak = terrein && document.getElementById('drie_vlak').checked;
+  const terreinvlakmodus = document.getElementById('drie_vlakmodus').value;
+  const terreinvlakwaarde = parseFloat(String(document.getElementById('drie_vlakwaarde').value).replace(',', '.'));
+  if (terreinvlak && terreinvlakmodus === 'eigen' && !isFinite(terreinvlakwaarde)) { status.textContent = 'Vul een geldig niveau in (m NAP) voor het vlakke terrein.'; return; }
   const terreindiepte = parseFloat(String(document.getElementById('drie_diepte').value).replace(',', '.')) || 1;
   const bomen = document.getElementById('drie_bomen').checked;
   const boomobject = document.getElementById('drie_boomobject').value;
@@ -1671,10 +1767,11 @@ document.getElementById('importeer').onclick = async () => {
   try {
     const r = await fetch('/import', {method: 'POST',
       body: JSON.stringify({...gebied, lagen, alleniveaus, pennen, plan, planteksten, perceelteksten,
-                            gebouwen, gebouwenmateriaal, terrein, terreinnaad, terreinoverslaan, terreinskirt, terreindiepte, terreindekken,
+                            gebouwen, gebouwenmateriaal, terrein, terreinnaad, terreinoverslaan, terreinskirt, terreindiepte, terreindekken, terreinvlak, terreinvlakmodus, terreinvlakwaarde,
                             bomen, boomobject})});
     const d = await r.json();
     if (d.fout) { status.textContent = 'Fout: ' + d.fout; return; }
+    timerStart();
     while (true) {
       await new Promise(ok => setTimeout(ok, POLL_MS));
       const v = await (await fetch('/voortgang')).json();
@@ -1682,9 +1779,10 @@ document.getElementById('importeer').onclick = async () => {
       if (v.status === 'bezig') { status.textContent = v.tekst + ' (' + Math.round(v.fractie * 100) + '%)'; continue; }
       status.textContent = v.status === 'fout' ? 'Fout: ' + v.fout
         : (v.status === 'gestopt' ? 'Gestopt: ' : 'Klaar: ') + v.aantal + ' elementen getekend.';
+      timerKlaar(v);
       break;
     }
-  } catch (e) { status.textContent = 'Er ging iets mis: ' + e; }
+  } catch (e) { status.textContent = 'Er ging iets mis: ' + e; timerStop(); }
   finally { knop.disabled = false; balk.style.display = 'none'; stopknop.style.display = 'none'; }
 };
 document.getElementById('stop').onclick = async () => {
@@ -1701,19 +1799,19 @@ def start_job(aanvraag):
         if JOB["status"] == "bezig":
             return {"fout": "Er loopt al een import; wacht tot die klaar is of stop hem."}
         JOB.update(id=JOB["id"] + 1, status="bezig", tekst="Starten...", fractie=0.0, aantal=None, fout=None,
-                   stop=False)
+                   stop=False, start=time.time(), einde=None, fases=[])
         taak = JOB["id"]
 
     def werk():
         try:
             aantal = importeer(aanvraag)
             with JOB_SLOT:
-                JOB.update(status="gestopt" if JOB["stop"] else "klaar", aantal=aantal,
+                JOB.update(status="gestopt" if JOB["stop"] else "klaar", aantal=aantal, einde=time.time(),
                            fractie=JOB["fractie"] if JOB["stop"] else 1.0, tekst="Klaar")
         except Exception as fout:
             print("FOUT:", fout)
             with JOB_SLOT:
-                JOB.update(status="fout", fout=str(fout))
+                JOB.update(status="fout", fout=str(fout), einde=time.time())
     threading.Thread(target=werk, daemon=True).start()
     return {"job": taak}
 
@@ -1743,7 +1841,10 @@ class Handler(BaseHTTPRequestHandler):
             self.stuur_json({"geopend": True})
         elif pad == "/voortgang":
             with JOB_SLOT:
-                self.stuur_json(dict(JOB))
+                antwoord = dict(JOB)
+                if antwoord.get("start"):
+                    antwoord["verstreken"] = round((antwoord.get("einde") or time.time()) - antwoord["start"], 1)
+                self.stuur_json(antwoord)
         else:
             pagina = (PAGINA.replace("__MAX_PLAN_MB__", str(MAX_PLAN_MB)).replace("__MAX_ZIJDE__", str(MAX_ZIJDE))
                       .replace("__BESCHIKBAAR__", json.dumps(BESCHIKBAAR)))

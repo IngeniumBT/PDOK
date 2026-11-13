@@ -508,7 +508,7 @@ def los_gatcontact_op(mesh):
     return verschoven, len(raakpunten_gaten(buiten, gaten))
 
 
-def bouw_meshes(obj, X, Y, Z, z_verschuiving=0.0):
+def _bouw_meshes_ruw(obj, X, Y, Z, z_verschuiving=0.0):
     """Zet een object om naar een lijst meshes (elk een woordenboek voor CreateMeshes) en een statistiek."""
     tris = orienteer(obj["driehoeken"], X, Y)
     stat = {"driehoeken": len(tris), "ringen": 0, "gaten": 0, "binnenpunten": 0, "knijp": 0,
@@ -2018,6 +2018,70 @@ def bepaal_dekken(meshes):
     return dekken, len(door_bron | door_type) - len(steunen & (door_bron | door_type)), len(door_overlap - steunen)
 
 
+VLAK = {"niveau": None}      # niveau (m NAP) waarop het terrein vlak wordt gemaakt; None: het terrein volgt de bron
+LAATSTE_VLAK_NIVEAU = None    # het niveau van de laatste vlakke terreinimport (de bomen gebruiken dat)
+
+
+def bouw_meshes(obj, X, Y, Z, z_verschuiving=0.0):
+    """Bouwt de meshes van een object; bij vlak terrein liggen alle punten op hetzelfde niveau (zonder extra hoogtepunten)."""
+    ms, st = _bouw_meshes_ruw(obj, X, Y, Z, z_verschuiving)
+    niveau = VLAK["niveau"]
+    if niveau is not None:
+        for m in ms:
+            for p in m["polygonCoordinates"]:
+                p["z"] = niveau
+            for h in m.get("holes", []):
+                for p in h["polygonCoordinates"]:
+                    p["z"] = niveau
+            m["sublines"] = []
+    return ms, st
+
+
+def _indices(b):
+    if isinstance(b, int):
+        yield b
+    else:
+        for e in b:
+            yield from _indices(e)
+
+
+def vlak_niveau(gebied, modus, waarde=None):
+    """Het niveau (m NAP) voor een vlak terrein: het gemiddelde, het laagste of het hoogste punt van het terrein in het gebied,
+    of een eigen waarde. Leest alleen de hoogtes van de hoekpunten, niet de hele vorm."""
+    if modus == "eigen":
+        return float(waarde)
+    typen = [t for t in OBJECT_TYPEN if t not in BRUGTYPEN]
+    zs = []
+    for p in D.kies_tegels(gebied, COLLECTIE):
+        pad = D.download(p)
+        with zipfile.ZipFile(pad) as z:
+            for i in z.infolist():
+                if not i.filename.lower().endswith(".json") or i.is_dir() or i.file_size / 1024 / 1024 > D.MAX_PARSE_MB:
+                    continue
+                with z.open(i) as f:
+                    data = json.load(f)
+                bereik = D.bereik_vertices(data)
+                if bereik and (bereik[2] < gebied[0] or bereik[0] > gebied[2] or bereik[3] < gebied[1] or bereik[1] > gebied[3]):
+                    continue
+                lees = D.vertex_lezer(data)
+                for o in data.get("CityObjects", {}).values():
+                    if o.get("type") not in typen:
+                        continue
+                    gezien = set()
+                    for g in o.get("geometry") or []:
+                        for idx in _indices(g.get("boundaries") or []):
+                            if idx in gezien:
+                                continue
+                            gezien.add(idx)
+                            x, y, zz = lees(idx)
+                            if gebied[0] <= x <= gebied[2] and gebied[1] <= y <= gebied[3]:
+                                zs.append(zz)
+                del data
+    if not zs:
+        raise RuntimeError("Er zijn geen terreinhoogtes gevonden om het vlakke niveau te bepalen.")
+    return {"laagste": min(zs), "hoogste": max(zs)}.get(modus, sum(zs) / len(zs))
+
+
 def bouw_alle_meshes(objecten, opties):
     meshes, totaal = [], Counter()
     for o in objecten:
@@ -2167,6 +2231,10 @@ def lees_argumenten(argumenten):
             opties["skirt"] = argumenten[i + 1].strip().lower()
             i += 2
             continue
+        if a == "--vlak-niveau" and i + 1 < len(argumenten):
+            opties["vlak_niveau"] = float(argumenten[i + 1])
+            i += 2
+            continue
         if a == "--dekdikte" and i + 1 < len(argumenten):
             opties["dekdikte"] = float(argumenten[i + 1])
             i += 2
@@ -2234,6 +2302,12 @@ def hoofd(argumenten):
     if "--controle-archicad" in argumenten:
         return controle_archicad(lees_argumenten(argumenten)[1]["raster"] or 0.25)
     gebied, opties = lees_argumenten(argumenten)
+    VLAK["niveau"] = opties.get("vlak_niveau")
+    if VLAK["niveau"] is not None:             # vlak terrein: geen naden of ankers (alles ligt op een niveau), en geen bruggen
+        opties["naadsluiting"] = False
+        opties["ankers"] = False
+        opties["typen"] = [t for t in opties["typen"] if t not in BRUGTYPEN]
+        print(f"Vlak terrein: de bovenkant van alle meshes ligt op {VLAK['niveau']:.2f} m NAP.")
     if gebied is None:
         print(__doc__)
         return 1
@@ -3065,7 +3139,7 @@ def wis_terrein(k):
     return leegmaken(zonder_vraag=True)
 
 
-def importeer_terrein(k, gebied, oppervlakken=True, naadsluiting=True, sla_over=(), skirt=None, diepte=None, dekken=True):
+def importeer_terrein(k, gebied, oppervlakken=True, naadsluiting=True, sla_over=(), skirt=None, diepte=None, dekken=True, vlak=None):
     """Voor het kaartvenster: haalt het terrein voor het gebied (xmin, ymin, xmax, ymax in RD) op en maakt het
     aan als Meshes. naadsluiting zet de naadsluiting aan of uit; sla_over is een lijst BGT-typen (bgt_type) die
     worden overgeslagen. Maakt ook de terreinoppervlakken aan. k is de kaart-module.
@@ -3081,6 +3155,12 @@ def importeer_terrein(k, gebied, oppervlakken=True, naadsluiting=True, sla_over=
             argumenten += ["--sla-over", str(soort).strip()]
     if not oppervlakken:
         argumenten.append("--zonder-materiaal")
+    global LAATSTE_VLAK_NIVEAU
+    LAATSTE_VLAK_NIVEAU = None
+    if vlak:                                    # (modus, waarde): gemiddeld, laagste, hoogste of eigen
+        niveau = vlak_niveau(gebied, vlak[0], vlak[1])
+        LAATSTE_VLAK_NIVEAU = niveau
+        argumenten += ["--vlak-niveau", repr(float(niveau))]
     if not dekken:
         argumenten.append("--geen-dekken")
     if skirt in SKIRT_TYPEN:
@@ -3090,7 +3170,10 @@ def importeer_terrein(k, gebied, oppervlakken=True, naadsluiting=True, sla_over=
             argumenten += ["--diepte", str(float(diepte))]
     except (TypeError, ValueError):
         pass
-    hoofd(argumenten)
+    try:
+        hoofd(argumenten)
+    finally:
+        VLAK["niveau"] = None
     return LAATSTE["gelukt"]
 
 

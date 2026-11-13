@@ -10,6 +10,11 @@ Eén `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat ee
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.14.0: een timer, vlak terrein, de hulpmiddelen terug, en gebouwen op LoD 2.2.** Het palet toont een timer en na afloop de duur per onderdeel.
+  Nieuw is de optie *Vlak terrein* (de bovenkant van alle meshes op de gemiddelde hoogte, het laagste of hoogste punt, of een eigen niveau; de bomen
+  volgen). *Terreincontrole* en *Terrein wissen* staan weer in het palet, in het uitklapbare vak *Hulpmiddelen voor het terrein*. Gebouwen die
+  Archicad als geheel weigert (bijvoorbeeld rijtjes met gedeelde scheidingsmuren) worden nu eerst op LoD 2.2 in losse delen gemaakt (`BAGID-deel1`, ...),
+  en alleen daarna op een lager niveau; het overzicht noemt hoeveel panden op welke manier zijn gemaakt en welke panden in de bron geen LoD 2.2 hebben.
 - **0.13.0: de eerste proefversie voor gebruikers.** De pagina is hersteld (bij het weghalen van de twee terreinknoppen was de lagenlijst niet
   meer geladen), de projectlocatie (Survey Point) is uitgezet (het projectnulpunt wordt als RD (0, 0) gezien), de motor ruimt oude versies in
   AppData op, en er is een handleiding voor proefgebruikers (HANDLEIDING.md).

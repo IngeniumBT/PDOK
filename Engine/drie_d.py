@@ -264,7 +264,9 @@ def panden_in_gebied(data, gebied):
         onderdelen = [o] + [objecten[k] for k in (o.get("children") or []) if k in objecten]
         per_lod = {}
         per_typen = {}
+        delen = []                  # elk deel (BuildingPart) apart: voor panden die als geheel niet gemaakt kunnen worden
         for deel in onderdelen:
+            deel_lod, deel_typen = {}, {}
             for g in deel.get("geometry", []) or []:
                 lod = lod_tekst(g.get("lod"))
                 if lod == "0.0":
@@ -273,6 +275,10 @@ def panden_in_gebied(data, gebied):
                 if vl:
                     per_lod.setdefault(lod, []).extend(vl)
                     per_typen.setdefault(lod, []).extend(typen)
+                    deel_lod.setdefault(lod, []).extend(vl)
+                    deel_typen.setdefault(lod, []).extend(typen)
+            if deel_lod:
+                delen.append({"geometrieen": deel_lod, "typen": deel_typen})
         if not per_lod:
             continue
         # hoekpunten van het voorkeursniveau voor de ligging
@@ -289,7 +295,7 @@ def panden_in_gebied(data, gebied):
         if gebied and (max(xs) < gebied[0] or min(xs) > gebied[2] or max(ys) < gebied[1] or min(ys) > gebied[3]):
             continue
         uit[sleutel] = {"attributen": o.get("attributes") or {}, "geometrieen": per_lod, "typen": per_typen,
-                        "lees": lees}
+                        "lees": lees, "delen": delen}
     return uit
 
 
@@ -825,7 +831,8 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
         except Exception as fout:
             aanwezig = {}
             print("Controle op bestaande panden mislukt:", fout)
-        over = [g for g in gebouwen if g["id"] not in aanwezig]
+        aanwezig_basis = set(aanwezig) | {re.sub(r"-deel\d+$", "", i) for i in aanwezig}      # een pand in delen heet BAGID-deel1, -deel2, ...
+        over = [g for g in gebouwen if g["id"] not in aanwezig_basis]
         if len(over) < len(gebouwen):
             print(f"{len(gebouwen) - len(over)} panden staan al op de laag en worden overgeslagen "
                   f"(met --forceer maak je ze toch aan).")
@@ -834,9 +841,10 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
             print("Er is niets nieuws om aan te maken.")
             LAATSTE.update(gelukt=0, mislukt=0)
             return 0
-    gelukt = mislukt = hersteld = met_driehoeken = 0
+    gelukt = mislukt = 0
     mislukte = []
-    teruggevallen = []
+    methoden = Counter()          # hoe elk pand is gemaakt (voor het rapport)
+    lager = []                    # (id, van, naar, reden): panden die niet op het gevraagde LoD zijn gemaakt
 
     def item(g):
         return {"basePoint": g["basis"], "body": g["lichaam"], "layerIndex": laag, "id": g["id"]}
@@ -846,6 +854,46 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
         if not r.get("succeeded"):
             return None, r
         return kaart.pak(r).get("elements", []), r
+
+    def lukt(elementen):
+        return bool(elementen) and all("elementId" in e for e in elementen)
+
+    def als_open_lichaam(lichaam):
+        return dict(lichaam, bodyType="Surface")
+
+    def in_delen(g, lod):
+        """Maakt elk deel van het pand als eigen morph (zonder gedeelde scheidingsmuren), elk deel zo mogelijk als gesloten lichaam,
+        anders met driehoeken, anders als open lichaam. Lukt een deel helemaal niet, dan worden de gemaakte delen weer weggehaald.
+        Geeft None als het niet lukt (of het pand maar een deel heeft), anders ({manier: aantal}, [gebruikte LoD's])."""
+        pand = g["pand"]
+        delen = pand.get("delen") or []
+        if len(delen) < 2:
+            return None
+        gemaakt, manieren, gebruikt = [], Counter(), []
+        for n, deel in enumerate(delen, 1):
+            kies = lod if lod in deel["geometrieen"] else next((l for l in LOD_VOLGORDE if l in deel["geometrieen"]), None)
+            if kies is None:
+                continue
+            deel_pand = {"attributen": pand["attributen"], "lees": pand["lees"], "geometrieen": deel["geometrieen"], "typen": deel["typen"]}
+            klaar = False
+            for naam, driehoeken, open_lichaam in (("gesloten", False, False), ("met driehoeken", True, False), ("open", True, True)):
+                res = bouw_lichaam(deel_pand, kies, z_verschuiving, opp, driehoeken=driehoeken)
+                if not res:
+                    continue
+                basis, lichaam, _ = res
+                els, _ = maak([{"basePoint": basis, "body": als_open_lichaam(lichaam) if open_lichaam else lichaam,
+                                "layerIndex": laag, "id": f"{g['id']}-deel{n}"}])
+                if els and lukt(els):
+                    gemaakt.append(els[0]["elementId"])
+                    manieren[naam] += 1
+                    gebruikt.append(kies)
+                    klaar = True
+                    break
+            if not klaar:
+                if gemaakt:
+                    kaart.tapir("DeleteElements", {"elements": [{"elementId": x} for x in gemaakt]})
+                return None
+        return (manieren, gebruikt) if gemaakt else None
 
     for i in range(0, len(gebouwen), BATCH):
         deel = gebouwen[i:i + BATCH]
@@ -858,32 +906,52 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
         for g, e in zip(deel, elementen):
             if "elementId" in e:
                 gelukt += 1
+                methoden["als een lichaam"] += 1
+                if g.get("lod") and g["lod"] != LOD_VOLGORDE[0]:
+                    lager.append((g["id"], LOD_VOLGORDE[0], g["lod"], "geen LoD 2.2 in de bron"))
                 continue
             fout = str(e.get("error", e))[:160]
-            # terugval 1: dezelfde detailgraad, maar met alle vlakken in driehoeken (bijvoorbeeld bij vlakken
-            # die niet helemaal vlak zijn)
             klaar = False
+            # Binnen hetzelfde detailniveau eerst alle mogelijkheden proberen; pas daarna een lager niveau.
+            # 1: alle vlakken in driehoeken (bijvoorbeeld vlakken die niet helemaal vlak zijn)
             res = bouw_lichaam(g["pand"], g["lod"], z_verschuiving, opp, driehoeken=True)
             if res:
                 basis, lichaam, _ = res
                 els, _ = maak([{"basePoint": basis, "body": lichaam, "layerIndex": laag, "id": g["id"]}])
-                if els and "elementId" in els[0]:
+                if els and lukt(els):
                     gelukt += 1
-                    met_driehoeken += 1
-                    teruggevallen.append((g["id"], g["lod"], f"{g['lod']} met driehoeken", fout))
+                    methoden["met driehoeken"] += 1
                     klaar = True
-            # terugval 2: een lager detailniveau
+            # 2: elk deel van het pand als eigen morph (gedeelde scheidingsmuren geven anders een gesloten lichaam dat niet kan)
+            if not klaar:
+                uitkomst = in_delen(g, g["lod"])
+                if uitkomst:
+                    manieren, gebruikt = uitkomst
+                    gelukt += 1
+                    methoden["in delen" + (" (waarvan " + ", ".join(f"{n} {m_}" for m_, n in manieren.items() if m_ != "gesloten") + ")"
+                                           if any(m_ != "gesloten" for m_ in manieren) else "")] += 1
+                    if any(l != g["lod"] for l in gebruikt):
+                        lager.append((g["id"], g["lod"], "/".join(sorted(set(gebruikt))), "een deel heeft geen LoD " + g["lod"] + " in de bron"))
+                    klaar = True
+            # 3: als open lichaam (alleen de vlakken, zonder dat het gesloten hoeft te zijn)
+            if not klaar and res:
+                basis, lichaam, _ = res
+                els, _ = maak([{"basePoint": basis, "body": als_open_lichaam(lichaam), "layerIndex": laag, "id": g["id"]}])
+                if els and lukt(els):
+                    gelukt += 1
+                    methoden["als open lichaam"] += 1
+                    klaar = True
+            # 4: pas dan een lager detailniveau
             for lod in ([] if klaar else g["alternatieven"]):
                 res = bouw_lichaam(g["pand"], lod, z_verschuiving, opp)
                 if not res:
                     continue
                 basis, lichaam, _ = res
-                alt = {"basePoint": basis, "body": lichaam, "layerIndex": laag, "id": g["id"]}
-                els, _ = maak([alt])
-                if els and "elementId" in els[0]:
+                els, _ = maak([{"basePoint": basis, "body": lichaam, "layerIndex": laag, "id": g["id"]}])
+                if els and lukt(els):
                     gelukt += 1
-                    hersteld += 1
-                    teruggevallen.append((g["id"], g["lod"], lod, fout))
+                    methoden[f"lager LoD ({lod})"] += 1
+                    lager.append((g["id"], g["lod"], lod, fout))
                     klaar = True
                     break
             if not klaar:
@@ -891,10 +959,19 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
                 mislukte.append(g["id"])
                 if len(mislukte) <= 3:
                     print(f"   pand {g['id']} mislukt (LoD {g['lod']}): {fout}")
-    print(f"\n{gelukt} Morphs aangemaakt ({met_driehoeken} met alle vlakken in driehoeken, "
-          f"{hersteld} met een lager detailniveau), {mislukt} mislukt.")
-    for pid, van, naar, fout in teruggevallen[:10]:
-        print(f"   pand {pid}: LoD {van} werd geweigerd ({fout}), gemaakt op LoD {naar}")
+    print(f"\n{gelukt} panden aangemaakt, {mislukt} mislukt.")
+    print("Hoe de panden zijn gemaakt: " + ", ".join(f"{n} {k_}" for k_, n in methoden.most_common()))
+    if lager:
+        bron = [x for x in lager if x[3].startswith(("geen LoD", "een deel heeft geen LoD"))]
+        geweigerd = [x for x in lager if not x[3].startswith(("geen LoD", "een deel heeft geen LoD"))]
+        if bron:
+            print(f"   {len(bron)} panden (of delen daarvan) hebben geen LoD 2.2 in de bron (alleen {', '.join(sorted({x[2] for x in bron}))}); die kunnen niet hoger.")
+        if geweigerd:
+            print(f"   {len(geweigerd)} panden zijn op een lager LoD gemaakt omdat Archicad LoD 2.2 weigerde:")
+            for pid, van, naar, fout in geweigerd[:10]:
+                print(f"      {pid}: LoD {van} werd geweigerd ({fout}), gemaakt op LoD {naar}")
+    else:
+        print("   Alle panden zijn op LoD 2.2 gemaakt.")
     if mislukte:
         print("Mislukte panden (eerste 10):", ", ".join(mislukte[:10]))
     LAATSTE.update(gelukt=gelukt, mislukt=mislukt)
