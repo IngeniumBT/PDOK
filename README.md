@@ -10,6 +10,10 @@ Eén `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat ee
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.15.0: een zoekvak voor de bomen.** Nieuwe opdracht `GetLibraryObjectNames` in de add-on (alle plaatsbare bibliotheekobjecten). De motor bewaart de lijst; het veld bij de
+  bomen is nu een zoekvak met een uitklaplijst (alle woorden moeten in de naam voorkomen, namen die ermee beginnen eerst), met een melding of de naam bestaat. Bij het importeren wordt
+  de naam gecontroleerd en met de hoofdletters van de bibliotheek doorgegeven; een onbekende naam geeft een foutmelding voordat er iets wordt gemaakt. Is de bibliotheek niet te lezen (een
+  oudere add-on), dan meldt het zoekvak dat en wordt de naam niet gecontroleerd. In het testpaneel staat *Bibliotheek lezen*.
 - **0.14.5: de kleinste groep vlakken in driehoeken, gezocht met proefaanmaken.** Bij een pand dat Archicad weigert, werd het op LoD 2.2 pas gemaakt als *alle* vlakken in
   driehoeken waren verdeeld (lange dunne waaiers op de daken). Nu zoekt de motor met **proefaanmaken** (nieuwe vlag `dryRun` in de aanmaakopdrachten van de add-on:
   het element wordt gemaakt en direct weer verwijderd, binnen dezelfde opdracht) de kleinste groep vlakken die echt in driehoeken moet; de rest blijft een vlak. Dit werkt alleen

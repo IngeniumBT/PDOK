@@ -1,6 +1,6 @@
 # PDOK Import voor Archicad - handleiding voor proefgebruikers
 
-Versie 0.14.5 (proefversie). Deze add-on haalt gegevens van PDOK (de BGT, het kadaster, bestemmingsplannen en de 3D Basisvoorziening) op
+Versie 0.15.0 (proefversie). Deze add-on haalt gegevens van PDOK (de BGT, het kadaster, bestemmingsplannen en de 3D Basisvoorziening) op
 en zet ze in je Archicad-project: als lijnen en vlakken, als 3D-gebouwen, als terrein en als bomen.
 
 ## Wat heb je nodig
@@ -61,8 +61,8 @@ Daarna kies je wat je importeert:
   *Terrein wissen* (twee klikken) verwijdert alle meshes op de terreinlagen.
 - **Viaducten en bruggen meenemen (als dun dek)**: leest de bruggen uit de bron in en maakt ze tot een dunne plaat. Deze functie is nog in ontwikkeling
   (zie Beperkingen).
-- **Bomen** (BGT-vegetatiepunten): op elk punt komt een bibliotheekobject te staan, op de hoogte van het terrein. Vul bij het veld de **naam van het
-  bibliotheekobject** in (standaard *Boom stedenbouw 02*); de namen zijn gelokaliseerd en moeten in jouw geladen bibliotheek staan.
+- **Bomen** (BGT-vegetatiepunten): op elk punt komt een bibliotheekobject te staan, op de hoogte van het terrein. Gebruik het **zoekvak**: typ een deel van de naam (bijvoorbeeld *boom*) en kies een object uit de lijst. Het zoekt in alle plaatsbare objecten van de bibliotheken die in Archicad geladen
+  zijn; onder het vak staat of de naam bestaat. Een naam die niet in de bibliotheek staat, wordt bij het importeren geweigerd, nog voordat er iets wordt gemaakt (standaard *Boom stedenbouw 02*).
 
 De eerste keer dat je 3D importeert voor een gebied wordt een grote tegel van PDOK opgehaald (tientallen MB); dat kan een minuut duren. Daarna staat die in
 de cache en gaat het sneller.

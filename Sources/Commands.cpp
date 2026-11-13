@@ -1906,6 +1906,42 @@ public:
     }
 };
 
+// ---- GetLibraryObjectNames -> {names: [..], count}
+//      De namen van alle plaatsbare bibliotheekobjecten in de geladen bibliotheken (de namen die CreateObjects als libraryPartName
+//      accepteert). De motor bewaart de lijst en gebruikt hem voor het zoekvak bij de bomen. Naar Tapirs GetAvailableLibraryParts.
+class GetLibraryObjectNamesCommand final : public CommandBase
+{
+public:
+    virtual GS::String GetName () const override { return "GetLibraryObjectNames"; }
+
+    virtual GS::ObjectState Execute (const GS::ObjectState&, GS::ProcessControl&) const override
+    {
+        Int32 partCount = 0;
+        const GSErrCode err = ACAPI_LibraryPart_GetNum (&partCount);
+        if (err != NoError) {
+            return ErrorResponse (err, "De bibliotheek kon niet worden gelezen.");
+        }
+        GS::ObjectState response;
+        const auto& names = response.AddList<GS::UniString> ("names");
+        Int32 total = 0;
+        for (Int32 i = 1; i <= partCount; ++i) {
+            API_LibPart libPart = {};
+            libPart.index = i;
+            if (ACAPI_LibraryPart_Get (&libPart) != NoError) {
+                continue;                       // bij een fout is libPart.location niet gereserveerd
+            }
+            if (libPart.typeID == APILib_ObjectID && libPart.isPlaceable && !libPart.isTemplate) {
+                names (GS::UniString (libPart.docu_UName));
+                ++total;
+            }
+            delete libPart.location;            // ACAPI_LibraryPart_Get reserveert die; zonder dit lekt er per onderdeel geheugen
+            libPart.location = nullptr;
+        }
+        response.Add ("count", total);
+        return response;
+    }
+};
+
 // ---- GetSelectedElements -> {elements: [{elementId}]}
 class GetSelectedElementsCommand final : public CommandBase
 {
@@ -1970,6 +2006,7 @@ GSErrCode RegisterAll ()
     err |= Register<CreateMeshesCommand> ();
     err |= Register<GetGeoLocationCommand> ();
     err |= Register<GetSurveyPointTransformationCommand> ();
+    err |= Register<GetLibraryObjectNamesCommand> ();
     return err;
 }
 

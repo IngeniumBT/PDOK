@@ -72,6 +72,7 @@ button{padding:5px 10px;margin:2px 6px 2px 0}
  <button id="b_basis"><b>Draai de basistests</b></button>
  <button id="b_versie">Versie</button>
  <button id="b_geo">Projectlocatie lezen</button>
+ <button id="b_bib">Bibliotheek lezen</button>
  <button id="b_lagen">Lagen tonen</button>
  <button id="b_testlaag">Testlaag maken</button>
 </div>
@@ -300,6 +301,11 @@ knop.b_geo = async () => {
     tekst += '\n  (IFC-georeferentie, niet gebruikt: E ' + sp.position.eastings + ', N ' + sp.position.northings + ', hoogte ' + sp.position.elevation + ', stelsel ' + (gp.crsName || 'niet ingevuld') + ')'; }
   schrijf(tekst);
 };
+knop.b_bib = async () => {
+  const d = await (await fetch('/bibliotheek?vernieuw=1&q=boom')).json();
+  if (!d.beschikbaar) { schrijf('De bibliotheek kon niet worden gelezen: ' + (d.fout || 'onbekende fout')); return; }
+  schrijf('Bibliotheek: ' + d.aantal_totaal + ' plaatsbare objecten. Zoeken naar "boom": ' + d.aantal + ' gevonden. Eerste: ' + d.resultaten.slice(0, 6).join(' | '));
+};
 knop.b_basis = async () => {
   schrijf('--- basistests ---');
   await knop.b_versie(); await knop.b_lagen(); await knop.b_testlaag(); await knop.b_venster(); await knop.b_tel();
@@ -362,6 +368,16 @@ class Handler(BasisHandler):
                 self.wfile.write(data)
             except OSError:
                 self._stuur(404, "", "text/plain")
+        elif pad == "/bibliotheek":
+            from urllib.parse import parse_qs
+            q = parse_qs(urlparse(self.path).query)
+            try:
+                if kaart is None:
+                    raise RuntimeError("het onderdeel met de kaart is niet geladen")
+                antwoord = kaart.zoek_bibliotheek((q.get("q") or [""])[0], vernieuw=bool(q.get("vernieuw")))
+            except Exception as fout:  # noqa: BLE001
+                antwoord = {"beschikbaar": False, "fout": str(fout)}
+            self._stuur(200, json.dumps(antwoord), "application/json")
         elif pad == "/projectlocatie":
             try:
                 kaart.laad_projectlocatie()

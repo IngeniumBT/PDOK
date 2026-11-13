@@ -326,6 +326,50 @@ def tapir(naam, parameters=None):
     return antwoord
 
 
+# ---------------------------------------------------------------- de bibliotheek (voor het zoekvak bij de bomen)
+BIBLIOTHEEK = {"namen": None, "klein": None, "fout": "", "slot": threading.Lock()}
+
+
+def bibliotheek_namen(vernieuw=False):
+    """De namen van alle plaatsbare bibliotheekobjecten. Wordt een keer opgehaald (dat duurt even bij een grote bibliotheek) en bewaard.
+    Geeft None als de add-on de bibliotheek niet kan lezen (bijvoorbeeld een oudere versie)."""
+    with BIBLIOTHEEK["slot"]:
+        if BIBLIOTHEEK["namen"] is None or vernieuw:
+            try:
+                r = _tapir_ruw("GetLibraryObjectNames")
+                lijst = pak(r).get("names") if r.get("succeeded") else None
+                if lijst is None:
+                    raise RuntimeError(str(r.get("error", r))[:200])
+                BIBLIOTHEEK["namen"] = sorted(set(str(n) for n in lijst), key=str.casefold)
+                BIBLIOTHEEK["klein"] = {n.casefold(): n for n in BIBLIOTHEEK["namen"]}
+                BIBLIOTHEEK["fout"] = ""
+            except Exception as fout:
+                BIBLIOTHEEK["namen"] = None
+                BIBLIOTHEEK["klein"] = None
+                BIBLIOTHEEK["fout"] = str(fout)
+        return BIBLIOTHEEK["namen"]
+
+
+def zoek_bibliotheek(vraag, limiet=15, vernieuw=False):
+    """Zoekt in de bibliotheek: alle woorden van de vraag moeten in de naam voorkomen; namen die ermee beginnen komen eerst."""
+    namen = bibliotheek_namen(vernieuw)
+    if namen is None:
+        return {"beschikbaar": False, "fout": BIBLIOTHEEK["fout"]}
+    q = (vraag or "").strip().casefold()
+    woorden = q.split()
+    treffers = []
+    if woorden:
+        begin, bevat = [], []
+        for n in namen:
+            k = n.casefold()
+            if all(w in k for w in woorden):
+                (begin if k.startswith(woorden[0]) else bevat).append(n)
+        treffers = begin + bevat
+    exact = BIBLIOTHEEK["klein"].get(q)
+    return {"beschikbaar": True, "aantal_totaal": len(namen), "aantal": len(treffers), "resultaten": treffers[:limiet],
+            "exact": bool(exact), "exacte_naam": exact or ""}
+
+
 def zet_archicad_poort(poort):
     """De poort van Archicads JSON-interface; de add-on geeft die door aan de motor."""
     _POORT["n"] = int(poort)
@@ -1109,6 +1153,14 @@ def importeer(aanvraag):
     Een groot gebied wordt in blokken verwerkt; de voortgang staat in JOB zodat de webpagina die kan tonen."""
     x_min, y_min, x_max, y_max = aanvraag["xmin"], aanvraag["ymin"], aanvraag["xmax"], aanvraag["ymax"]
     print(f"PDOK Import versie {VERSIE}")
+    if aanvraag.get("bomen"):
+        naam = (aanvraag.get("boomobject") or "").strip() or (bomen.STANDAARD_OBJECT if bomen is not None else "")
+        bekend = bibliotheek_namen()
+        if bekend is not None:
+            gevonden = BIBLIOTHEEK["klein"].get(naam.casefold())
+            if gevonden is None:
+                raise RuntimeError(f"Het bibliotheekobject '{naam}' staat niet in de geladen bibliotheek. Zoek het in het vak bij de bomen en kies een naam uit de lijst.")
+            aanvraag = dict(aanvraag, boomobject=gevonden)          # met de hoofdletters zoals de bibliotheek ze heeft
     laad_projectlocatie()                       # het Survey Point: bepaalt hoe RD naar het project wordt omgerekend (nu uit)
     if PROJECTLOCATIE_GEBRUIKEN:
         print(PROJECT["tekst"])
@@ -1403,7 +1455,11 @@ PAGINA = """<!DOCTYPE html>
   <label class="klein" style="display:block;margin:2px 0"><input type="checkbox" id="drie_dekken" checked> Viaducten en bruggen meenemen (als dun dek)</label>
 
   <label><input type="checkbox" id="drie_bomen"> Bomen (BGT-vegetatiepunten, als 3D-object op het terrein)</label>
-  <input type="text" id="drie_boomobject" value="Boom stedenbouw 02" placeholder="Naam van het bibliotheekobject">
+  <div style="position:relative">
+   <input type="text" id="drie_boomobject" value="Boom stedenbouw 02" placeholder="Zoek een bibliotheekobject, bijvoorbeeld boom" autocomplete="off">
+   <div id="boomlijst" style="display:none;position:absolute;left:0;right:0;z-index:30;max-height:190px;overflow:auto;background:#fff;border:1px solid #888;box-shadow:0 3px 8px rgba(0,0,0,.3)"></div>
+  </div>
+  <div id="boomstatus" class="klein" style="margin:2px 0 4px"></div>
   <div class="klein">Het eerste keer ophalen kan een minuut duren (tegel van enkele tientallen MB). Wat al bestaat
   wordt overgeslagen. De oppervlakken van het terrein stel je zelf per laag in; zie de terminal.</div>
   <details id="hulp" style="margin:6px 0"><summary class="klein"><b>Hulpmiddelen voor het terrein</b></summary>
@@ -1464,6 +1520,40 @@ zetSchaal(schaal);
 document.getElementById('kleiner').onclick = () => zetSchaal(schaal - 0.1);
 document.getElementById('groter').onclick = () => zetSchaal(schaal + 0.1);
 const BESCHIKBAAR = __BESCHIKBAAR__;
+// Het zoekvak bij de bomen: zoekt in de geladen bibliotheken van Archicad terwijl je typt.
+const boomInvoer = document.getElementById('drie_boomobject'), boomLijst = document.getElementById('boomlijst'), boomStatus = document.getElementById('boomstatus');
+let boomTimer = null, boomVolgnr = 0;
+async function boomZoek(vraag) {
+  const nr = ++boomVolgnr;
+  let d;
+  try { d = await (await fetch('/bibliotheek?q=' + encodeURIComponent(vraag))).json(); }
+  catch (e) { boomStatus.textContent = 'De bibliotheek kon niet worden opgehaald.'; boomStatus.style.color = '#b00020'; return; }
+  if (nr !== boomVolgnr) return;                                  // een nieuwere zoekopdracht is al gestart
+  boomLijst.innerHTML = '';
+  if (!d.beschikbaar) {
+    boomLijst.style.display = 'none';
+    boomStatus.textContent = 'De bibliotheek kon niet worden gelezen (is de add-on bijgewerkt?). Typ de naam zelf in.';
+    boomStatus.style.color = '#b00020'; return;
+  }
+  d.resultaten.forEach(naam => {
+    const it = document.createElement('div');
+    it.textContent = naam; it.style.cssText = 'padding:3px 6px;cursor:pointer;font-size:12px;border-bottom:1px solid #eee';
+    it.onmousedown = ev => { if (ev && ev.preventDefault) ev.preventDefault(); boomInvoer.value = naam; boomLijst.style.display = 'none';
+                             boomStatus.textContent = 'Gekozen: ' + naam; boomStatus.style.color = '#2e7d32'; };
+    boomLijst.appendChild(it);
+  });
+  boomLijst.style.display = d.resultaten.length ? 'block' : 'none';
+  const vraagLeeg = !String(vraag).trim();
+  boomStatus.textContent = d.exact ? 'Dit object staat in de bibliotheek.' : vraagLeeg ? d.aantal_totaal.toLocaleString('nl-NL') + ' objecten in de bibliotheek'
+    : d.aantal ? d.aantal.toLocaleString('nl-NL') + ' gevonden (van ' + d.aantal_totaal.toLocaleString('nl-NL') + ' objecten); kies er een'
+    : 'Geen bibliotheekobject gevonden met deze naam.';
+  boomStatus.style.color = d.exact ? '#2e7d32' : (!vraagLeeg && !d.aantal ? '#b00020' : '#555');
+}
+boomInvoer.oninput = () => { clearTimeout(boomTimer); boomTimer = setTimeout(() => boomZoek(boomInvoer.value), 200); };
+boomInvoer.onfocus = () => boomZoek(boomInvoer.value);
+boomInvoer.onblur = () => setTimeout(() => { boomLijst.style.display = 'none'; }, 150);
+boomInvoer.onkeydown = ev => { if (ev && ev.key === 'Escape') boomLijst.style.display = 'none'; };
+boomZoek(boomInvoer.value);                                       // meteen controleren of de standaardnaam bestaat
 // De timer: hoe lang de import duurt, en daarna hoe lang elk onderdeel kostte.
 const timerEl = document.getElementById('timer');
 let timerTik = null, timerT0 = 0;
