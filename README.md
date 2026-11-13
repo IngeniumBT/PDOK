@@ -10,6 +10,10 @@ Eén `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat ee
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.11.1: bruggen en viaducten uit de bron.** De tegels bevatten viaducten als eigen soort object (CityJSON-type `Bridge` en
+  `BridgePart`), die tot nu toe niet werden ingelezen; daardoor ontbraken sommige viaducten helemaal. Ze worden nu ingelezen (alleen de
+  bovenkant, ook als de bron ze als gesloten lichaam geeft), op de laag `3D_terrein_bruggen` met het oppervlak `PDOK_brug`, altijd als
+  dun dek. De **Terreincontrole** toont nu alle soorten objecten in de bron voor het gebied.
 - **0.11.0: viaducten en brugdekken.** Een viaduct werd een massief blok tot de onderkant van het terrein. Nu worden meshes die een
   dek zijn (ze liggen in plattegrond boven een ander object, of de bron zegt dat ze boven het maaiveld liggen) een dunne plaat van
   0,6 m, met het terrein eronder dat gewoon doorloopt. Te kiezen met *Viaducten en brugdekken als dun dek*. De **Terreincontrole**
@@ -84,7 +88,8 @@ Archicad: **PDOK Import > PDOK Import openen...**. Het palet toont nu de **kaart
    klein gebied (ongeveer 300 x 300 m). Het testpaneel heeft **Test: mesh (terrein) maken**.
    **Let op bij een update van 0.10.0 of eerder:** de meshes die je al hebt zijn afgeknipt en worden niet vanzelf aangevuld. Klik op
    **Terreincontrole** (met een getekend gebied) om te zien wat er ontbreekt, dan op **Terrein wissen** (twee klikken) en importeer opnieuw.
-   **Viaducten:** vink *Viaducten en brugdekken als dun dek* aan (standaard). Klopt een viaduct nog niet, klik dan op **Terreincontrole**
+   **Viaducten:** vink *Viaducten en bruggen meenemen (als dun dek)* aan (standaard). Dit leest de bruggen uit de bron in en maakt ze, en
+   andere meshes die boven een ander object liggen, tot een dunne plaat. Klopt een viaduct nog niet, klik dan op **Terreincontrole**
    en plak de uitvoer: de lijst met eigenschappen van de bron laat zien onder welke naam de hoogteligging staat.
    Onder *Terrein* kies je de **onderkant** (volume, zijvlakken of alleen het bovenvlak) en de **diepte** in meter.
    Controleer in 3D of de gebouwen op het terrein staan. Test de aansluiting door een tweede, aangrenzend gebied te importeren:

@@ -99,7 +99,10 @@ TYPEN = {
     "Road": "3D_terrein_wegen",
     "PlantCover": "3D_terrein_begroeiing",
     "WaterBody": "3D_terrein_water",
+    "Bridge": "3D_terrein_bruggen",
+    "BridgePart": "3D_terrein_bruggen",
 }
+BRUGTYPEN = ("Bridge", "BridgePart")             # viaducten en bruggen: altijd een dun dek, alleen de bovenkant
 OBJECT_TYPEN = list(TYPEN)                       # de typen die uit de data komen
 ONDERGROND_LAAG = "3D_terrein_ondergrond"
 ONDERGROND_DIEPTE = 0.05                         # m onder de rest
@@ -111,6 +114,8 @@ TERREIN_OPPERVLAKKEN = {
     "LandUse": ("PDOK_landgebruik", (0.60, 0.58, 0.48)),
     "PlantCover": ("PDOK_groen", (0.33, 0.52, 0.24)),
     "WaterBody": ("PDOK_water", (0.22, 0.42, 0.68)),
+    "Bridge": ("PDOK_brug", (0.50, 0.50, 0.54)),
+    "BridgePart": ("PDOK_brug", (0.50, 0.50, 0.54)),
 }
 AFRONDEN = 3
 MIN_RINGOPPERVLAK = 1e-3    # m2, kleinere ringen worden weggelaten
@@ -266,6 +271,30 @@ def voeg_dubbelen_samen(objecten):
     return uit, samengevoegd
 
 
+def _lod_getal(lod):
+    try:
+        return float(lod)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def bovenvlak_filter(driehoeken, X, Y, Z, gesloten_lichaam):
+    """Voor een brug: laat verticale vlakken (muren) vallen. Is de geometrie een gesloten lichaam, dan blijven alleen de
+    driehoeken over die omhoog kijken (de bovenkant); de onderkant valt weg."""
+    omhoog, omlaag = [], []
+    for a, b, c in driehoeken:
+        ux, uy, uz = X[b] - X[a], Y[b] - Y[a], Z[b] - Z[a]
+        vx, vy, vz = X[c] - X[a], Y[c] - Y[a], Z[c] - Z[a]
+        nx, ny, nz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
+        lengte = math.sqrt(nx * nx + ny * ny + nz * nz)
+        if lengte < 1e-9 or abs(nz) < 0.3 * lengte:
+            continue
+        (omhoog if nz > 0 else omlaag).append((a, b, c))
+    if gesloten_lichaam and omhoog:
+        return omhoog
+    return omhoog + omlaag
+
+
 def lees_objecten(data, gebied, typen, met_bruggen=False, sla_over=(), alleen=None, xyz=None):
     """Geeft een lijst {'id', 'type', 'attributen', 'driehoeken'} met alleen de driehoeken die het gebied raken.
 
@@ -277,7 +306,7 @@ def lees_objecten(data, gebied, typen, met_bruggen=False, sla_over=(), alleen=No
     bron = ((k_, alle[k_]) for k_ in alleen if k_ in alle) if alleen is not None else alle.items()
     for sleutel, o in bron:
         t = o.get("type")
-        if t not in typen:
+        if typen is not None and t not in typen:
             continue
         at = o.get("attributes") or {}
         if at.get("hoortbijbrug") and not met_bruggen:
@@ -286,19 +315,28 @@ def lees_objecten(data, gebied, typen, met_bruggen=False, sla_over=(), alleen=No
             continue
         driehoeken = []          # alle driehoeken van het object
         rakend = []              # alleen de driehoeken die het gebied raken
-        for g in o.get("geometry") or []:
+        geometrieen = o.get("geometry") or []
+        if t in BRUGTYPEN and len(geometrieen) > 1:
+            geometrieen = [max(geometrieen, key=lambda g_: _lod_getal(g_.get("lod")))]    # een brug heeft soms meer detailniveaus
+        soorten = []
+        for g in geometrieen:
+            soorten.append(str(g.get("type")))
+            van_geometrie = []
             for vl in D.oppervlakken_van(g):
                 if not vl or len(vl[0]) < 3:
                     continue
                 ring = vl[0]
                 for k in range(1, len(ring) - 1):        # een driehoek blijft een driehoek; een veelhoek wordt een waaier
-                    a, b, c = ring[0], ring[k], ring[k + 1]
-                    driehoeken.append((a, b, c))
-                    if gebied:
-                        xs = (X[a], X[b], X[c])
-                        ys = (Y[a], Y[b], Y[c])
-                        if not (max(xs) < gebied[0] or min(xs) > gebied[2] or max(ys) < gebied[1] or min(ys) > gebied[3]):
-                            rakend.append((a, b, c))
+                    van_geometrie.append((ring[0], ring[k], ring[k + 1]))
+            if t in BRUGTYPEN:
+                van_geometrie = bovenvlak_filter(van_geometrie, X, Y, Z, g.get("type") in ("Solid", "MultiSolid", "CompositeSolid"))
+            for a, b, c in van_geometrie:
+                driehoeken.append((a, b, c))
+                if gebied:
+                    xs = (X[a], X[b], X[c])
+                    ys = (Y[a], Y[b], Y[c])
+                    if not (max(xs) < gebied[0] or min(xs) > gebied[2] or max(ys) < gebied[1] or min(ys) > gebied[3]):
+                        rakend.append((a, b, c))
         if gebied:
             # Een object dat het gebied raakt, wordt als geheel gemaakt, niet afgeknipt: zo staat het bij een volgende import
             # van een aangrenzend gebied al compleet en blijft er geen gat langs de grens. Alleen een heel groot object
@@ -306,7 +344,7 @@ def lees_objecten(data, gebied, typen, met_bruggen=False, sla_over=(), alleen=No
             driehoeken = driehoeken if (rakend and len(driehoeken) <= MAX_HELE_OBJECT) else rakend
         if driehoeken:
             uit.append({"sleutel": sleutel, "id": str(at.get("3df_id") or sleutel), "type": t,
-                        "attributen": at, "driehoeken": driehoeken, "xyz": (X, Y, Z)})
+                        "attributen": at, "driehoeken": driehoeken, "xyz": (X, Y, Z), "geometrie": ",".join(soorten)})
     return uit, (X, Y, Z)
 
 
@@ -1884,7 +1922,7 @@ def bouw_ondergrond(objecten, gebied, z_verschuiving=0.0, diepte=ONDERGROND_DIEP
 # ----------------------------------------------------------------- Uitvoer
 
 
-def verzamel(gebied, typen, met_bruggen, voetafdrukken=False, sla_over=()):
+def verzamel(gebied, typen, met_bruggen, voetafdrukken=False, sla_over=()):     # typen None: alle soorten objecten
     tegels = D.kies_tegels(gebied, COLLECTIE)
     print(f"{len(tegels)} tegel(s) voor dit gebied:")
     for p in tegels:
@@ -1967,7 +2005,8 @@ def bepaal_dekken(meshes):
                 boven[i] += 1
     door_overlap = {meshes[i][1]["id"] for i, n in boven.items() if totaal[i] and n >= DEK_MIN_DEEL * totaal[i]}
     door_bron = {m["id"] for _t, m in meshes if (HOOGTELIGGING.get(m["id"]) or 0) > 0}
-    return door_overlap | door_bron, len(door_bron), len(door_overlap)
+    door_type = {m["id"] for t, m in meshes if t in BRUGTYPEN}          # een brug of viaduct uit de bron
+    return door_overlap | door_bron | door_type, len(door_bron | door_type), len(door_overlap)
 
 
 def bouw_alle_meshes(objecten, opties):
@@ -2096,6 +2135,8 @@ def lees_argumenten(argumenten):
               "naadmax": NAAD_MAX_VERSCHIL, "naadsluiting": "--geen-naadsluiting" not in argumenten,
               "max": None, "z": 0.0, "typen": list(OBJECT_TYPEN)}
     getallen = []
+    if not opties["dekken"]:
+        opties["typen"] = [t for t in opties["typen"] if t not in BRUGTYPEN]     # zonder dek-keuze ook geen bruggen
     i = 0
     while i < len(argumenten):
         a = argumenten[i]
@@ -2631,7 +2672,7 @@ def _teken(meshes, opties):
     if skirt_type != "SurfaceOnlyWithoutSkirt" and opties.get("dekken", True):
         dekken, n_bron, n_overlap = bepaal_dekken(meshes)
         if dekken:
-            print(f"\n{len(dekken)} meshes herkend als viaduct of brugdek ({n_bron} volgens de bron, {n_overlap} doordat ze boven een ander "
+            print(f"\n{len(dekken)} meshes herkend als viaduct of brugdek ({n_bron} volgens de bron of als brug, {n_overlap} doordat ze boven een ander "
                   f"object liggen); die krijgen een dunne onderkant van {opties.get('dekdikte', DEK_DIKTE):g} m.")
     if skirt_model:
         onderkant = min(mesh_zmin(m_) for _, m_ in meshes) - opties.get("diepte", STANDAARD_DIEPTE)
@@ -2897,7 +2938,21 @@ def diagnose_dekking(k, gebied):
     KAART = k
     k.MAPNAAM = MAP
     print(f"Terreincontrole voor het gebied x {gebied[0]:.0f} tot {gebied[2]:.0f}, y {gebied[1]:.0f} tot {gebied[3]:.0f}\n")
-    objecten, _ = verzamel(gebied, list(OBJECT_TYPEN), True)
+    alle_objecten, _ = verzamel(gebied, None, True)
+    soorten = defaultdict(lambda: [0, 0, set(), Counter()])
+    for o in alle_objecten:
+        r_ = soorten[o["type"]]
+        r_[0] += 1
+        r_[1] += len(o["driehoeken"])
+        r_[2].add(o.get("geometrie", ""))
+        r_[3][str((o["attributen"] or {}).get("3df_class") or "")] += 1
+    print("Soorten objecten in de bron voor dit gebied (CityJSON-type: aantal, driehoeken, geometrie, 3df_class):")
+    for t_ in sorted(soorten):
+        n_, tri_, geo_, cls_ = soorten[t_]
+        print(f"   {t_}{'' if t_ in OBJECT_TYPEN else '  (wordt niet geimporteerd)'}: {n_} objecten, {tri_} driehoeken, "
+              f"{'/'.join(sorted(geo_)) or '?'}, " + ", ".join(f"{c or '-'} ({k})" for c, k in cls_.most_common(3)))
+    print()
+    objecten = [o for o in alle_objecten if o["type"] in OBJECT_TYPEN]
     brug = [o for o in objecten if (o["attributen"] or {}).get("hoortbijbrug")]
     gewone = [o for o in objecten if not (o["attributen"] or {}).get("hoortbijbrug")]
     meshes, _stat = bouw_alle_meshes(gewone, {"z": 0.0})
@@ -2914,7 +2969,7 @@ def diagnose_dekking(k, gebied):
         else:
             print(f"   {sl}: {len(waarden)} verschillende waarden")
     dekken, n_bron, n_overlap = bepaal_dekken(meshes)
-    print(f"Viaducten of brugdekken: {len(dekken)} meshes ({n_bron} volgens de eigenschappen, {n_overlap} doordat ze boven een ander object liggen).\n")
+    print(f"Viaducten of brugdekken: {len(dekken)} meshes ({n_bron} volgens de bron of als brug, {n_overlap} doordat ze boven een ander object liggen).\n")
     verwacht = defaultdict(lambda: {"opp": 0.0, "n": 0, "type": "", "punten": []})
     for typ, m in meshes:
         b = verwacht[basis_id(m["id"])]

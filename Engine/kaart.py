@@ -1160,7 +1160,7 @@ PAGINA = """<!DOCTYPE html>
    <select id="drie_skirt" style="flex:1 1 auto;min-width:0"><option value="volume" selected>als volume (massief)</option><option value="zijvlakken">met zijvlakken</option><option value="oppervlak">alleen het bovenvlak</option></select>
    <input type="text" id="drie_diepte" value="1" title="Diepte van de onderkant onder het laagste punt, in meter" style="flex:0 0 52px;width:52px"> <span class="klein">m</span>
   </div>
-  <label class="klein" style="display:block;margin:2px 0"><input type="checkbox" id="drie_dekken" checked> Viaducten en brugdekken als dun dek</label>
+  <label class="klein" style="display:block;margin:2px 0"><input type="checkbox" id="drie_dekken" checked> Viaducten en bruggen meenemen (als dun dek)</label>
   <div class="rij" style="margin:6px 0">
    <button id="drie_controle" class="compact" title="Vergelijkt het terrein in Archicad met de bron voor het getekende gebied en meldt wat ontbreekt">Terreincontrole</button>
    <button id="drie_wis" class="compact" title="Verwijdert alle meshes op de PDOK-terreinlagen (Ongedaan maken in Archicad brengt ze terug)">Terrein wissen</button>
