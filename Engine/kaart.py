@@ -7,6 +7,7 @@ import shutil
 import sys
 import tempfile
 import uuid
+import copy
 import webbrowser
 import zipfile
 import threading
@@ -129,6 +130,171 @@ ADDON = True          # de motor draait in de add-on: de terreincode slaat de co
 SKIRT_BEKEND = True   # de add-on zet skirtLevel rechtstreeks: een diepte onder het referentievlak (level)
 
 
+# ---------------------------------------------------------------- projectlocatie (Survey Point)
+#
+# De import werkt in RD (het landelijke stelsel). Het Survey Point van het project legt vast welk punt in het project welke
+# landelijke coordinaten heeft. Met dat punt (Eastings, Northings, hoogte, plek in het project), de draaiing van het stelsel
+# en de schaal rekenen we RD om naar projectcoordinaten, en bij het teruglezen weer terug (zoals IFC dat doet).
+# Staat het Survey Point op de nulwaarden, dan is het projectnulpunt RD (0, 0) en gebeurt er niets.
+PROJECT = {"actief": False, "tekst": "De projectlocatie is nog niet gelezen.", "waarschuwing": ""}
+_T = None        # None: geen omrekening nodig
+
+
+def laad_projectlocatie():
+    """Leest het Survey Point en bepaalt de omrekening. Geeft PROJECT terug (tekst en waarschuwing voor de gebruiker)."""
+    global _T
+    _T = None
+    PROJECT.update(actief=False, waarschuwing="")
+    try:
+        r = _tapir_ruw("GetGeoLocation")
+        sp = pak(r).get("surveyPoint") if r.get("succeeded") else None
+    except Exception as fout:
+        sp = None
+        PROJECT["tekst"] = f"De projectlocatie kon niet worden gelezen ({fout}); het projectnulpunt wordt als RD (0, 0) gezien."
+    if not sp:
+        if "kon niet" not in PROJECT["tekst"]:
+            PROJECT["tekst"] = "De projectlocatie kon niet worden gelezen; het projectnulpunt wordt als RD (0, 0) gezien."
+        return PROJECT
+    pos, pr, gp = sp.get("position", {}), sp.get("positionInProject", {}), sp.get("geoReferencingParameters", {})
+    e, n, h = (float(pos.get(k_, 0) or 0) for k_ in ("eastings", "northings", "elevation"))
+    px, py, pz = (float(pr.get(k_, 0) or 0) for k_ in ("x", "y", "z"))
+    a, o = float(gp.get("xAxisAbscissa", 1) or 0), float(gp.get("xAxisOrdinate", 0) or 0)
+    lengte = math.hypot(a, o) or 1.0
+    a, o = a / lengte, o / lengte
+    schaal = float(gp.get("scale", 1) or 1)
+    crs = str(gp.get("crsName") or "")
+    nul = all(abs(v) < 1e-9 for v in (e, n, h, px, py, pz, o)) and abs(a - 1) < 1e-9 and abs(schaal - 1) < 1e-9
+    if nul:
+        PROJECT.update(actief=False, tekst="Het Survey Point staat op de nulwaarden: het projectnulpunt wordt als RD (0, 0) gezien.")
+        return PROJECT
+    _T = {"e": e, "n": n, "h": h, "px": px, "py": py, "pz": pz, "a": a, "o": o, "s": schaal}
+    rd = any(w in (crs + " " + str(gp.get("geodeticDatum") or "") + " " + str(gp.get("mapProjection") or "")).lower()
+             for w in ("28992", "amersfoort", "rd new", "rd-new", "rijksdriehoek", "oblique stereographic"))
+    draai = math.degrees(math.atan2(o, a))
+    PROJECT.update(actief=True, tekst=(f"Survey Point: E {e:.2f}, N {n:.2f}, hoogte {h:.2f} m (in het project op {px:.2f}, {py:.2f}, {pz:.2f})"
+                                       + (f", stelsel {draai:.2f} graden gedraaid" if abs(draai) > 1e-6 else "")
+                                       + (f", schaal {schaal:g}" if abs(schaal - 1) > 1e-9 else "")
+                                       + ". Alle coordinaten worden omgerekend van RD naar het project."),
+                   waarschuwing="" if rd else (f"Het coordinatenstelsel van het Survey Point is '{crs or '(niet ingevuld)'}', niet RD New (EPSG:28992). "
+                                               f"Controleer de projectlocatie in Archicad: de import rekent met de coordinaten van het Survey Point."))
+    return PROJECT
+
+
+def naar_project(x, y, z=None):
+    """RD -> projectcoordinaten (x, y, z); z blijft None als hij niet is opgegeven."""
+    if _T is None:
+        return x, y, z
+    dx, dy = (x - _T["e"]) / _T["s"], (y - _T["n"]) / _T["s"]
+    return (_T["px"] + _T["a"] * dx + _T["o"] * dy, _T["py"] - _T["o"] * dx + _T["a"] * dy,
+            None if z is None else _T["pz"] + (z - _T["h"]))
+
+
+def naar_rd(x, y, z=None):
+    """Projectcoordinaten -> RD."""
+    if _T is None:
+        return x, y, z
+    ux, uy = x - _T["px"], y - _T["py"]
+    return (_T["e"] + _T["s"] * (_T["a"] * ux - _T["o"] * uy), _T["n"] + _T["s"] * (_T["o"] * ux + _T["a"] * uy),
+            None if z is None else _T["h"] + (z - _T["pz"]))
+
+
+def _hoek_naar_project(hoek):
+    return hoek - math.atan2(_T["o"], _T["a"])
+
+
+def _punt_p(c, met_z=False):
+    c["x"], c["y"], z = naar_project(c["x"], c["y"], c.get("z") if met_z else None)
+    if met_z and z is not None:
+        c["z"] = z
+
+
+def _p_polylijnen(par):
+    for it in par.get("polylinesData", []):
+        for c in it.get("coordinates", []):
+            _punt_p(c)
+
+
+def _p_vlakken(par):
+    for it in par.get("hatchesData", []):
+        for c in it.get("coordinates", []):
+            _punt_p(c)
+        for g in it.get("holes", []):
+            for c in g.get("polygonOutline") or g.get("polygonCoordinates") or []:
+                _punt_p(c)
+
+
+def _p_teksten(par):
+    for it in par.get("textsData", []):
+        if "coordinate" in it:
+            _punt_p(it["coordinate"])
+        if "angle" in it:
+            it["angle"] = _hoek_naar_project(it["angle"])
+
+
+def _p_meshes(par):
+    dz = _T["pz"] - _T["h"]
+    for it in par.get("meshesData", []):
+        for c in it.get("polygonCoordinates", []):
+            _punt_p(c, True)
+        for g in it.get("holes", []):
+            for c in g.get("polygonCoordinates", []):
+                _punt_p(c, True)
+        for sl in it.get("sublines", []):
+            for c in sl.get("coordinates", []):
+                _punt_p(c, True)
+        if "skirtLevel" in it:
+            it["skirtLevel"] = round(it["skirtLevel"] - dz, 6)        # onderkant = level - skirtLevel, en de onderkant verschuift mee
+
+
+def _p_morphs(par):
+    for it in par.get("morphsData", []):
+        if "basePoint" in it:
+            _punt_p(it["basePoint"], True)
+        if abs(_T["o"]) > 1e-12 or abs(_T["a"] - 1) > 1e-12:           # het lichaam (lokale coordinaten) draait mee
+            for v in (it.get("body") or {}).get("vertices", []):
+                x, y = v["x"], v["y"]
+                v["x"] = (_T["a"] * x + _T["o"] * y) / _T["s"]
+                v["y"] = (-_T["o"] * x + _T["a"] * y) / _T["s"]
+
+
+def _p_objecten(par):
+    for it in par.get("objectsData", []):
+        if "coordinates" in it:
+            _punt_p(it["coordinates"], True)
+        if "angle" in it:
+            it["angle"] = _hoek_naar_project(it["angle"])
+
+
+_NAAR_PROJECT = {"CreatePolylines": _p_polylijnen, "CreateHatches": _p_vlakken, "CreateTexts": _p_teksten,
+                 "CreateMeshes": _p_meshes, "CreateMorphs": _p_morphs, "CreateObjects": _p_objecten}
+
+
+def _details_naar_rd(antwoord):
+    """Zet de omtrek van gelezen meshes terug naar RD."""
+    dz = _T["pz"] - _T["h"]
+    for it in pak(antwoord).get("detailsOfElements", []):
+        d = it.get("details") or {}
+        for c in d.get("polygonCoordinates", []):
+            c["x"], c["y"], c["z"] = naar_rd(c["x"], c["y"], c["z"])
+        for g in d.get("holes", []):
+            for c in g.get("polygonCoordinates", []):
+                c["x"], c["y"], c["z"] = naar_rd(c["x"], c["y"], c["z"])
+        if "skirtLevel" in d:
+            d["skirtLevel"] = d["skirtLevel"] + dz
+
+
+def tapir(naam, parameters=None):
+    """Roept een opdracht van de add-on aan (de naam is een erfenis uit de tijd van Tapir). Coordinaten die wij sturen zijn RD;
+    ze worden hier omgerekend naar het project, en teruggelezen meshes weer naar RD."""
+    if _T is not None and parameters and naam in _NAAR_PROJECT:
+        parameters = copy.deepcopy(parameters)
+        _NAAR_PROJECT[naam](parameters)
+    antwoord = _tapir_ruw(naam, parameters)
+    if _T is not None and naam == "GetDetailsOfElements" and antwoord.get("succeeded", True):
+        _details_naar_rd(antwoord)
+    return antwoord
+
+
 def zet_archicad_poort(poort):
     """De poort van Archicads JSON-interface; de add-on geeft die door aan de motor."""
     _POORT["n"] = int(poort)
@@ -154,8 +320,8 @@ def _post(json_inhoud, naam):
                 raise RuntimeError("Geen verbinding met Archicad. Staat Archicad nog open?")
 
 
-def tapir(naam, parameters=None):
-    """Roept een opdracht van de add-on aan (de naam is een erfenis uit de tijd van Tapir)."""
+def _tapir_ruw(naam, parameters=None):
+    """Roept een opdracht van de add-on aan, zonder coordinaten om te rekenen."""
     return _post({
         "command": "API.ExecuteAddOnCommand",
         "parameters": {
@@ -910,6 +1076,10 @@ def importeer(aanvraag):
 
     Een groot gebied wordt in blokken verwerkt; de voortgang staat in JOB zodat de webpagina die kan tonen."""
     x_min, y_min, x_max, y_max = aanvraag["xmin"], aanvraag["ymin"], aanvraag["xmax"], aanvraag["ymax"]
+    laad_projectlocatie()                       # het Survey Point: bepaalt hoe RD naar het project wordt omgerekend
+    print(PROJECT["tekst"])
+    if PROJECT["waarschuwing"]:
+        print("LET OP: " + PROJECT["waarschuwing"])
     if (x_max - x_min) > MAX_ZIJDE or (y_max - y_min) > MAX_ZIJDE:
         raise ValueError(f"Gebied te groot, maximaal {MAX_ZIJDE} x {MAX_ZIJDE} meter.")
     onderdelen = [n for n, aan in (("3D-gebouwen", aanvraag.get("gebouwen")), ("3D-terrein", aanvraag.get("terrein")),
@@ -1131,6 +1301,7 @@ PAGINA = """<!DOCTYPE html>
   <span><button id="kleiner" title="Kleinere tekst in dit paneel" style="width:auto;margin:0;padding:1px 8px">A-</button> <button id="groter" title="Grotere tekst in dit paneel" style="width:auto;margin:0;padding:1px 8px">A+</button></span>
  </div>
  <h3 style="margin:6px 0">PDOK naar Archicad</h3>
+ <div id="projectlocatie" class="klein" style="margin:0 0 6px"></div>
  <div class="bedien">
   <div class="rij">
    <input type="text" id="adres" placeholder="Zoek een adres...">
@@ -1220,6 +1391,11 @@ zetSchaal(schaal);
 document.getElementById('kleiner').onclick = () => zetSchaal(schaal - 0.1);
 document.getElementById('groter').onclick = () => zetSchaal(schaal + 0.1);
 const BESCHIKBAAR = __BESCHIKBAAR__;
+fetch('/projectlocatie').then(r => r.json()).then(d => {            // de projectlocatie (Survey Point) van het project
+  const e = document.getElementById('projectlocatie');
+  e.textContent = (d.waarschuwing ? 'Let op: ' + d.waarschuwing : d.tekst);
+  if (d.waarschuwing) { e.style.color = '#b00020'; e.style.fontWeight = '600'; }
+}).catch(() => {});
 async function terreinActie(pad, gebiedNodig) {
   const uit = document.getElementById('drie_uit');
   if (gebiedNodig && !gebied) { status.textContent = 'Teken eerst een gebied voor de terreincontrole.'; return; }

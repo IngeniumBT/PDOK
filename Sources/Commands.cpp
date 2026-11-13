@@ -1816,6 +1816,57 @@ protected:
     }
 };
 
+
+// ================================================================== de projectlocatie (Survey Point)
+
+// ---- GetGeoLocation -> {surveyPoint: {position: {eastings, northings, elevation}, positionInProject: {x, y, z},
+//      geoReferencingParameters: {crsName, description, geodeticDatum, verticalDatum, mapProjection, mapZone, xAxisAbscissa,
+//      xAxisOrdinate, scale}}}
+//      Het Survey Point heeft landelijke coordinaten (position) en een plek in het project (positionInProject). Met de draaiing
+//      van het stelsel (xAxisAbscissa en xAxisOrdinate: de richting van de projectas in het landelijke stelsel) en de schaal
+//      rekent de motor RD-coordinaten om naar projectcoordinaten, zoals ook IFC dat doet (IfcMapConversion). Naar Tapirs GetGeoLocation.
+class GetGeoLocationCommand final : public CommandBase
+{
+public:
+    virtual GS::String GetName () const override { return "GetGeoLocation"; }
+
+    virtual GS::ObjectState Execute (const GS::ObjectState&, GS::ProcessControl&) const override
+    {
+        API_GeoLocation geoLocation = {};
+        const GSErrCode err = ACAPI_GeoLocation_GetGeoLocation (&geoLocation);
+        if (err != NoError) {
+            return ErrorResponse (err, "De projectlocatie kon niet worden gelezen.");
+        }
+
+        GS::ObjectState position;
+        position.Add ("eastings", geoLocation.geoReferenceData.eastings);
+        position.Add ("northings", geoLocation.geoReferenceData.northings);
+        position.Add ("elevation", geoLocation.geoReferenceData.orthogonalHeight);
+
+        GS::ObjectState inProject;
+        inProject.Add ("x", geoLocation.surveyPointPosition.x);
+        inProject.Add ("y", geoLocation.surveyPointPosition.y);
+        inProject.Add ("z", geoLocation.surveyPointPosition.z);
+
+        GS::ObjectState parameters;
+        parameters.Add ("crsName", geoLocation.geoReferenceData.name);
+        parameters.Add ("description", geoLocation.geoReferenceData.description);
+        parameters.Add ("geodeticDatum", geoLocation.geoReferenceData.geodeticDatum);
+        parameters.Add ("verticalDatum", geoLocation.geoReferenceData.verticalDatum);
+        parameters.Add ("mapProjection", geoLocation.geoReferenceData.mapProjection);
+        parameters.Add ("mapZone", geoLocation.geoReferenceData.mapZone);
+        parameters.Add ("xAxisAbscissa", geoLocation.geoReferenceData.xAxisAbscissa);
+        parameters.Add ("xAxisOrdinate", geoLocation.geoReferenceData.xAxisOrdinate);
+        parameters.Add ("scale", geoLocation.geoReferenceData.scale);
+
+        GS::ObjectState surveyPoint;
+        surveyPoint.Add ("position", position);
+        surveyPoint.Add ("positionInProject", inProject);
+        surveyPoint.Add ("geoReferencingParameters", parameters);
+        return GS::ObjectState ("surveyPoint", surveyPoint);
+    }
+};
+
 // ---- GetSelectedElements -> {elements: [{elementId}]}
 class GetSelectedElementsCommand final : public CommandBase
 {
@@ -1878,6 +1929,7 @@ GSErrCode RegisterAll ()
     err |= Register<EnsureSurfaceCommand> ();
     err |= Register<CreateMorphsCommand> ();
     err |= Register<CreateMeshesCommand> ();
+    err |= Register<GetGeoLocationCommand> ();
     return err;
 }
 

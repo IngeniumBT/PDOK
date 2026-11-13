@@ -10,6 +10,10 @@ Eén `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat ee
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.12.0: de projectlocatie (Survey Point).** De add-on leest het Survey Point van het project (de landelijke coordinaten, de plek in
+  het project, de draaiing en de schaal) en rekent alle coordinaten van RD om naar het project, en bij het teruglezen van meshes weer
+  terug. Staat het Survey Point op de nulwaarden (zoals in een project waarvan het nulpunt RD (0, 0) is), dan verandert er niets.
+  Het paneel toont de projectlocatie bovenaan, met een waarschuwing als het stelsel niet RD New (EPSG:28992) is.
 - **0.11.2:** pijlers (en landhoofden) van een brug blijven een **massieve kolom** tot de onderkant; alleen het brugdek wordt een dun
   dek. De eigenschap heet in de bron `relatievehoogteligging` (zonder streepje); die wordt nu herkend. De **Terreincontrole** toont per
   brugobject de soort, hoogteligging, oppervlakte, hoogtes en wat eronder ligt, en meldt kleine verschillen in oppervlakte (onder 3% of

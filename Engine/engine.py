@@ -60,6 +60,7 @@ button{padding:5px 10px;margin:2px 6px 2px 0}
 <div>
  <button id="b_basis"><b>Draai de basistests</b></button>
  <button id="b_versie">Versie</button>
+ <button id="b_geo">Projectlocatie lezen</button>
  <button id="b_lagen">Lagen tonen</button>
  <button id="b_testlaag">Testlaag maken</button>
 </div>
@@ -277,6 +278,14 @@ knop.b_mesh = async () => {
   const e = (p.elements || [])[0] || {};
   schrijf(e.elementId ? 'Mesh (20 x 20 m, met een gat en twee hoogtepunten, een licht hellend vlak met oppervlak PDOK_weg en een onderkant op ' + (z - 1.0).toFixed(1) + ' m) geplaatst op (' + x0 + ', ' + y0 + '), ID TEST-MESH.' : 'Mesh mislukt: ' + JSON.stringify(e.error || e));
 };
+knop.b_geo = async () => {
+  const p = await stap('Projectlocatie', 'GetGeoLocation'); if (!p) return;
+  const sp = p.surveyPoint, g = sp.geoReferencingParameters, pos = sp.position, pr = sp.positionInProject;
+  const j = await (await fetch('/projectlocatie')).json();
+  schrijf('Survey Point: E ' + pos.eastings + ', N ' + pos.northings + ', hoogte ' + pos.elevation + ' | in het project op (' + pr.x + ', ' + pr.y + ', ' + pr.z + ')\n  stelsel: ' + (g.crsName || '(niet ingevuld)') +
+          ' | as (' + g.xAxisAbscissa + ', ' + g.xAxisOrdinate + '), schaal ' + g.scale + ' | datum ' + g.geodeticDatum + ', ' + g.verticalDatum + ', projectie ' + g.mapProjection +
+          '\n  ' + j.tekst + (j.waarschuwing ? '\n  LET OP: ' + j.waarschuwing : ''));
+};
 knop.b_basis = async () => {
   schrijf('--- basistests ---');
   await knop.b_versie(); await knop.b_lagen(); await knop.b_testlaag(); await knop.b_venster(); await knop.b_tel();
@@ -339,6 +348,12 @@ class Handler(BasisHandler):
                 self.wfile.write(data)
             except OSError:
                 self._stuur(404, "", "text/plain")
+        elif pad == "/projectlocatie":
+            try:
+                kaart.laad_projectlocatie()
+                self._stuur(200, json.dumps(kaart.PROJECT), "application/json")
+            except Exception as fout:  # noqa: BLE001
+                self._stuur(200, json.dumps({"actief": False, "tekst": "De projectlocatie kon niet worden gelezen: " + str(fout), "waarschuwing": ""}), "application/json")
         elif pad == "/test":
             self._stuur(200, TESTPAGINA, "text/html; charset=utf-8")
         elif pad == "/info":
