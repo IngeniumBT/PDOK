@@ -1964,11 +1964,18 @@ GROOT_GEBIED = 600.0  # m: een gebied met een zijde groter dan dit wordt in blok
 
 
 HOOGTELIGGING = {}   # mesh-ID -> relatieve hoogteligging uit de bron (zie bouw_alle_meshes)
+BRUGSOORT = {}       # mesh-ID -> soort brugdeel uit de bron (dek, pijler, ...)
+STEUNEN = ("pijler", "landhoofd")   # steunen van een brug: een massieve kolom tot de onderkant, geen dun dek
+
+
+def brugsoort_van(at):
+    return str(at.get("typeoverbruggingsdeel") or "").strip().lower()
+
 
 
 def hoogteligging_van(at):
     """De relatieve hoogteligging (0 = maaiveld, 1 en hoger = erboven, negatief = eronder) uit de eigenschappen, of None."""
-    for sleutel in ("relatieve_hoogteligging", "relatieveHoogteligging", "relatieve-hoogteligging", "hoogteligging"):
+    for sleutel in ("relatievehoogteligging", "relatieve_hoogteligging", "relatieveHoogteligging", "relatieve-hoogteligging", "hoogteligging"):   # in de 3D Basisvoorziening: zonder streepje
         if sleutel in at:
             try:
                 return int(float(at[sleutel]))
@@ -2005,8 +2012,10 @@ def bepaal_dekken(meshes):
                 boven[i] += 1
     door_overlap = {meshes[i][1]["id"] for i, n in boven.items() if totaal[i] and n >= DEK_MIN_DEEL * totaal[i]}
     door_bron = {m["id"] for _t, m in meshes if (HOOGTELIGGING.get(m["id"]) or 0) > 0}
-    door_type = {m["id"] for t, m in meshes if t in BRUGTYPEN}          # een brug of viaduct uit de bron
-    return door_overlap | door_bron | door_type, len(door_bron | door_type), len(door_overlap)
+    door_type = {m["id"] for t, m in meshes if t in BRUGTYPEN and BRUGSOORT.get(m["id"], "") not in STEUNEN}
+    steunen = {m["id"] for t, m in meshes if t in BRUGTYPEN and BRUGSOORT.get(m["id"], "") in STEUNEN}
+    dekken = (door_overlap | door_bron | door_type) - steunen         # een pijler blijft een massieve kolom
+    return dekken, len(door_bron | door_type) - len(steunen & (door_bron | door_type)), len(door_overlap - steunen)
 
 
 def bouw_alle_meshes(objecten, opties):
@@ -2017,8 +2026,10 @@ def bouw_alle_meshes(objecten, opties):
         for k_, v in st.items():
             totaal[k_] += v
         hl = hoogteligging_van(o.get("attributen") or {})
+        soort = brugsoort_van(o.get("attributen") or {})
         for m in ms:
             HOOGTELIGGING[m["id"]] = hl          # apart bewaard: de naadsluiting maakt nieuwe mesh-gegevens
+            BRUGSOORT[m["id"]] = soort
         meshes += [(o["type"], m) for m in ms]
     return meshes, totaal
 
@@ -2260,8 +2271,10 @@ def hoofd(argumenten):
         ms, st = bouw_meshes(o, X, Y, Z, opties["z"])
         per_object[o["id"]] = ms
         hl = hoogteligging_van(o.get("attributen") or {})
+        soort = brugsoort_van(o.get("attributen") or {})
         for m in ms:
             HOOGTELIGGING[m["id"]] = hl
+            BRUGSOORT[m["id"]] = soort
         for k, v in st.items():
             totaal[k] += v
         tellers[o["type"]]["objecten"] += 1
@@ -2969,7 +2982,29 @@ def diagnose_dekking(k, gebied):
         else:
             print(f"   {sl}: {len(waarden)} verschillende waarden")
     dekken, n_bron, n_overlap = bepaal_dekken(meshes)
-    print(f"Viaducten of brugdekken: {len(dekken)} meshes ({n_bron} volgens de bron of als brug, {n_overlap} doordat ze boven een ander object liggen).\n")
+    print(f"Viaducten of brugdekken: {len(dekken)} meshes ({n_bron} volgens de bron of als brug, {n_overlap} doordat ze boven een ander object liggen).")
+    brugdelen = [(t_, m_) for t_, m_ in meshes if t_ in BRUGTYPEN]
+    if brugdelen:
+        print("Per brugobject: soort, hoogteligging, oppervlakte, hoogtes (laagste / gemiddeld / hoogste), en de hoogte van wat eronder ligt:")
+        onder = defaultdict(list)                     # raster: cel -> [(z, id)] van alles dat geen brug is
+        for t_, m_ in meshes:
+            if t_ in BRUGTYPEN:
+                continue
+            for c_ in cellen_binnen(ring_xy(m_["polygonCoordinates"]), [ring_xy(h["polygonCoordinates"]) for h in m_.get("holes", [])], DEK_STAP):
+                onder[c_].append(mesh_zgemiddeld(m_))
+        for t_, m_ in sorted(brugdelen, key=lambda x: x[1]["id"]):
+            buiten = ring_xy(m_["polygonCoordinates"])
+            opp = abs(vorm_oppervlak(buiten)) - sum(abs(vorm_oppervlak(ring_xy(h["polygonCoordinates"]))) for h in m_.get("holes", []))
+            zs = [p["z"] for p in m_["polygonCoordinates"]]
+            cellen = cellen_binnen(buiten, [ring_xy(h["polygonCoordinates"]) for h in m_.get("holes", [])], DEK_STAP)
+            eronder = [z for c_ in cellen for z in onder.get(c_, [])]
+            xs, ys = [p[0] for p in buiten], [p[1] for p in buiten]
+            soort = BRUGSOORT.get(m_["id"]) or "-"
+            rol = "steun (massief)" if soort in STEUNEN else "dek (dun)"
+            print(f"   {m_['id'][:14]} {t_}, {soort}, hoogteligging {HOOGTELIGGING.get(m_['id'])}, {opp:.0f} m2, z {min(zs):.1f}/{sum(zs) / len(zs):.1f}/{max(zs):.1f} m, "
+                  f"eronder: " + (f"{min(eronder):.1f} tot {max(eronder):.1f} m" if eronder else "niets") +
+                  f", rond ({(min(xs) + max(xs)) / 2:.0f}, {(min(ys) + max(ys)) / 2:.0f}) -> {rol}")
+    print()
     verwacht = defaultdict(lambda: {"opp": 0.0, "n": 0, "type": "", "punten": []})
     for typ, m in meshes:
         b = verwacht[basis_id(m["id"])]
@@ -2998,7 +3033,7 @@ def diagnose_dekking(k, gebied):
     print(f"Archicad: {totaal_ac} meshes op de terreinlagen.\n")
     ontbreekt = [(i, b) for i, b in verwacht.items() if i not in aanwezig]
     afwijkend = [(i, b, aanwezig[i]) for i, b in verwacht.items()
-                 if i in aanwezig and abs(aanwezig[i]["opp"] - b["opp"]) > max(0.5, 0.01 * b["opp"])]
+                 if i in aanwezig and abs(aanwezig[i]["opp"] - b["opp"]) > max(2.0, 0.03 * b["opp"])]
     print(f"Ontbrekend in Archicad: {len(ontbreekt)} objecten ({sum(b['opp'] for _, b in ontbreekt):.0f} m2).")
     per = defaultdict(lambda: [0, 0.0])
     for _, b in ontbreekt:
@@ -3011,10 +3046,10 @@ def diagnose_dekking(k, gebied):
         ys = [p[1] for p in b["punten"]]
         print(f"   {i} ({b['type']}, {at.get(i, {}).get('bgt_type') or '-'}): {b['opp']:.0f} m2 rond "
               f"({(min(xs) + max(xs)) / 2:.0f}, {(min(ys) + max(ys)) / 2:.0f})")
-    print(f"\nAfwijkende vorm (oppervlakte in Archicad wijkt meer dan 1% af van de bron): {len(afwijkend)} objecten.")
+    print(f"\nAfwijkende vorm (oppervlakte in Archicad wijkt meer dan 3% en 2 m2 af van de bron): {len(afwijkend)} objecten.")
     for i, b, a in sorted(afwijkend, key=lambda x: -abs(x[1]["opp"] - x[2]["opp"]))[:8]:
         print(f"   {i}: bron {b['opp']:.0f} m2, Archicad {a['opp']:.0f} m2 "
-              f"({'afgeknipt bij een eerdere import?' if a['opp'] < b['opp'] else 'groter dan de bron'})")
+              f"({'afgeknipt bij een eerdere import?' if a['opp'] < 0.9 * b['opp'] else ('groter dan de bron' if a['opp'] > b['opp'] else 'iets kleiner dan de bron')})")
     dubbel = [i for i, a in aanwezig.items() if a["n"] > (verwacht[i]["n"] if i in verwacht else 1)]
     if dubbel:
         print(f"\nLET OP: {len(dubbel)} objecten staan dubbel in Archicad (bijvoorbeeld {', '.join(dubbel[:3])}).")
