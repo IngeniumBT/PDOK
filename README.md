@@ -10,6 +10,9 @@ Eén `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat ee
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.13.0: de eerste proefversie voor gebruikers.** De pagina is hersteld (bij het weghalen van de twee terreinknoppen was de lagenlijst niet
+  meer geladen), de projectlocatie (Survey Point) is uitgezet (het projectnulpunt wordt als RD (0, 0) gezien), de motor ruimt oude versies in
+  AppData op, en er is een handleiding voor proefgebruikers (HANDLEIDING.md).
 - **0.12.1: de projectlocatie via de omrekening van het Survey Point.** De add-on gebruikt de omrekening die Archicad zelf geeft van
   projectcoordinaten naar het Survey Point-stelsel (de plek van het Survey Point en zijn Project North-draaiing), en rekent daarmee alle
   coordinaten van RD naar het project, en bij het teruglezen van meshes weer terug. Het Survey Point is het nulpunt van het landelijke stelsel.

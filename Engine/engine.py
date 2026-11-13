@@ -409,6 +409,30 @@ class Handler(BasisHandler):
             super().do_POST()
 
 
+def ruim_oude_versies():
+    """Verwijdert de uitgepakte motoren van oudere versies uit %LOCALAPPDATA%\\PDOKImport (de map cache blijft). Een motor die nog draait
+    (zijn python.exe is dan in gebruik) wordt overgeslagen."""
+    try:
+        import shutil
+        mijn = os.path.dirname(HIER)                       # ...\PDOKImport\<versie>
+        basis = os.path.dirname(mijn)
+        if os.path.basename(basis).lower() != "pdokimport":
+            return
+        for naam in os.listdir(basis):
+            pad = os.path.join(basis, naam)
+            if os.path.normcase(pad) == os.path.normcase(mijn) or naam.lower() == "cache" or not os.path.isdir(pad):
+                continue
+            exe = os.path.join(pad, "python", "python.exe")
+            try:
+                if os.path.exists(exe):
+                    open(exe, "ab").close()               # lukt niet als die motor nog draait
+            except OSError:
+                continue
+            shutil.rmtree(pad, ignore_errors=True)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def bewaak_ouder(pid):
     """Stopt de motor zodra Archicad (het ouderproces) niet meer bestaat."""
     if not pid or os.name != "nt":
@@ -453,6 +477,7 @@ def main():
         f.write(str(poort))
     os.replace(tijdelijk, args.port_file)                      # de add-on leest dit bestand pas als het compleet is
     print("motor luistert op poort", poort, flush=True)
+    threading.Thread(target=ruim_oude_versies, daemon=True).start()
     server.serve_forever()
     print("motor gestopt", flush=True)
 

@@ -156,11 +156,17 @@ def _inverteer(m):
             r[6], r[7], r[8], -(r[6] * tx + r[7] * ty + r[8] * tz)]
 
 
+PROJECTLOCATIE_GEBRUIKEN = False    # in deze versie uit: het projectnulpunt wordt als RD (0, 0) gezien. De omrekening hieronder is klaar voor later.
+
+
 def laad_projectlocatie():
     """Leest de omrekening van het Survey Point en bepaalt de omrekening RD <-> project. Geeft PROJECT terug (tekst en waarschuwing)."""
     global _T
     _T = None
     PROJECT.update(actief=False, waarschuwing="")
+    if not PROJECTLOCATIE_GEBRUIKEN:
+        PROJECT["tekst"] = "De projectlocatie (Survey Point) wordt in deze versie niet gebruikt: het projectnulpunt wordt als RD (0, 0) gezien."
+        return PROJECT
     m = None
     try:
         r = _tapir_ruw("GetSurveyPointTransformation")
@@ -1099,10 +1105,11 @@ def importeer(aanvraag):
 
     Een groot gebied wordt in blokken verwerkt; de voortgang staat in JOB zodat de webpagina die kan tonen."""
     x_min, y_min, x_max, y_max = aanvraag["xmin"], aanvraag["ymin"], aanvraag["xmax"], aanvraag["ymax"]
-    laad_projectlocatie()                       # het Survey Point: bepaalt hoe RD naar het project wordt omgerekend
-    print(PROJECT["tekst"])
-    if PROJECT["waarschuwing"]:
-        print("LET OP: " + PROJECT["waarschuwing"])
+    laad_projectlocatie()                       # het Survey Point: bepaalt hoe RD naar het project wordt omgerekend (nu uit)
+    if PROJECTLOCATIE_GEBRUIKEN:
+        print(PROJECT["tekst"])
+        if PROJECT["waarschuwing"]:
+            print("LET OP: " + PROJECT["waarschuwing"])
     if (x_max - x_min) > MAX_ZIJDE or (y_max - y_min) > MAX_ZIJDE:
         raise ValueError(f"Gebied te groot, maximaal {MAX_ZIJDE} x {MAX_ZIJDE} meter.")
     onderdelen = [n for n, aan in (("3D-gebouwen", aanvraag.get("gebouwen")), ("3D-terrein", aanvraag.get("terrein")),
@@ -1317,14 +1324,13 @@ PAGINA = """<!DOCTYPE html>
  .klein{font-size:12px;color:#555;margin:4px 0}
  #status{margin-top:12px;font-size:14px;white-space:pre-wrap}
 </style></head><body>
-<div style="position:fixed;right:6px;bottom:4px;font-size:11px;z-index:5"><a href="/test">testpaneel</a></div>
+<div style="position:fixed;right:6px;bottom:4px;font-size:11px;z-index:5"><a href="/test">diagnose</a></div>
 <div id="paneel">
  <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">
   <img src="/logo.png" alt="Ingenium - partner in bouwtechniek" title="Ingenium - partner in bouwtechniek" style="height:26px;width:auto;display:block">
   <span><button id="kleiner" title="Kleinere tekst in dit paneel" style="width:auto;margin:0;padding:1px 8px">A-</button> <button id="groter" title="Grotere tekst in dit paneel" style="width:auto;margin:0;padding:1px 8px">A+</button></span>
  </div>
  <h3 style="margin:6px 0">PDOK naar Archicad</h3>
- <div id="projectlocatie" class="klein" style="margin:0 0 6px"></div>
  <div class="bedien">
   <div class="rij">
    <input type="text" id="adres" placeholder="Zoek een adres...">
@@ -1410,36 +1416,6 @@ zetSchaal(schaal);
 document.getElementById('kleiner').onclick = () => zetSchaal(schaal - 0.1);
 document.getElementById('groter').onclick = () => zetSchaal(schaal + 0.1);
 const BESCHIKBAAR = __BESCHIKBAAR__;
-fetch('/projectlocatie').then(r => r.json()).then(d => {            // de projectlocatie (Survey Point) van het project
-  const e = document.getElementById('projectlocatie');
-  e.textContent = (d.waarschuwing ? 'Let op: ' + d.waarschuwing : d.tekst);
-  if (d.waarschuwing) { e.style.color = '#b00020'; e.style.fontWeight = '600'; }
-}).catch(() => {});
-fetch('/projectlocatie').then(r => r.json()).then(d => {            // de projectlocatie (Survey Point) van het project
-  const e = document.getElementById('projectlocatie');
-  e.textContent = (d.waarschuwing ? 'Let op: ' + d.waarschuwing : d.tekst);
-  if (d.waarschuwing) { e.style.color = '#b00020'; e.style.fontWeight = '600'; }
-}).catch(() => {});
-async function terreinActie(pad, gebiedNodig) {
-  const uit = document.getElementById('drie_uit');
-  if (gebiedNodig && !gebied) { status.textContent = 'Teken eerst een gebied voor de terreincontrole.'; return; }
-  uit.style.display = 'block'; uit.textContent = 'Bezig...';
-  try {
-    const r = await fetch(pad, {method: 'POST', body: JSON.stringify(gebied || {})});
-    const d = await r.json(); uit.textContent = d.tekst || JSON.stringify(d);
-  } catch (e) { uit.textContent = 'Mislukt: ' + e; }
-}
-document.getElementById('drie_controle').onclick = () => terreinActie('/terreincontrole', true);
-const wisKnop = document.getElementById('drie_wis');
-wisKnop.onclick = () => {
-  if (!wisKnop.dataset.klaar) {                      // eerst een tweede klik: wissen kan niet per ongeluk
-    wisKnop.dataset.klaar = '1'; wisKnop.textContent = 'Klik nogmaals om te wissen';
-    setTimeout(() => { delete wisKnop.dataset.klaar; wisKnop.textContent = 'Terrein wissen'; }, 5000);
-    return;
-  }
-  delete wisKnop.dataset.klaar; wisKnop.textContent = 'Terrein wissen';
-  terreinActie('/terreinwissen', false);
-};
 function nogNiet(ids) {                                          // een onderdeel dat de add-on nog niet kan
   ids.forEach(id => {
     const e = document.getElementById(id); if (!e) return;
