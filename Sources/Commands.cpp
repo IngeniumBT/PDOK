@@ -1867,6 +1867,32 @@ public:
     }
 };
 
+// ---- GetSurveyPointTransformation -> {projectToSurvey: [12 getallen]}
+//      De 3x4-matrix (rij voor rij) die een punt in projectcoordinaten omrekent naar het Survey Point-stelsel:
+//      x' = m[0]*x + m[1]*y + m[2]*z + m[3], y' = m[4]*x + m[5]*y + m[6]*z + m[7], z' = m[8]*x + m[9]*y + m[10]*z + m[11].
+//      Het Survey Point is het nulpunt van het landelijke stelsel; de matrix bevat zijn plek en zijn Project North-draaiing.
+//      Naar Tapirs GetSurveyPointTransformation (Archicad 27 en nieuwer).
+class GetSurveyPointTransformationCommand final : public CommandBase
+{
+public:
+    virtual GS::String GetName () const override { return "GetSurveyPointTransformation"; }
+
+    virtual GS::ObjectState Execute (const GS::ObjectState&, GS::ProcessControl&) const override
+    {
+        API_Tranmat projectToSurvey = {};
+        const GSErrCode err = ACAPI_SurveyPoint_GetSurveyPointTransformation (&projectToSurvey);
+        if (err != NoError) {
+            return ErrorResponse (err, "De omrekening naar het Survey Point-stelsel kon niet worden gelezen.");
+        }
+        GS::ObjectState response;
+        const auto& values = response.AddList<double> ("projectToSurvey");
+        for (double value : projectToSurvey.tmx) {
+            values (value);
+        }
+        return response;
+    }
+};
+
 // ---- GetSelectedElements -> {elements: [{elementId}]}
 class GetSelectedElementsCommand final : public CommandBase
 {
@@ -1930,6 +1956,7 @@ GSErrCode RegisterAll ()
     err |= Register<CreateMorphsCommand> ();
     err |= Register<CreateMeshesCommand> ();
     err |= Register<GetGeoLocationCommand> ();
+    err |= Register<GetSurveyPointTransformationCommand> ();
     return err;
 }
 

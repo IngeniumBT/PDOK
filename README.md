@@ -10,10 +10,11 @@ Eén `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat ee
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
-- **0.12.0: de projectlocatie (Survey Point).** De add-on leest het Survey Point van het project (de landelijke coordinaten, de plek in
-  het project, de draaiing en de schaal) en rekent alle coordinaten van RD om naar het project, en bij het teruglezen van meshes weer
-  terug. Staat het Survey Point op de nulwaarden (zoals in een project waarvan het nulpunt RD (0, 0) is), dan verandert er niets.
-  Het paneel toont de projectlocatie bovenaan, met een waarschuwing als het stelsel niet RD New (EPSG:28992) is.
+- **0.12.1: de projectlocatie via de omrekening van het Survey Point.** De add-on gebruikt de omrekening die Archicad zelf geeft van
+  projectcoordinaten naar het Survey Point-stelsel (de plek van het Survey Point en zijn Project North-draaiing), en rekent daarmee alle
+  coordinaten van RD naar het project, en bij het teruglezen van meshes weer terug. Het Survey Point is het nulpunt van het landelijke stelsel.
+  De IFC-georeferentie (stelselnaam, E/N) wordt niet gebruikt. De knoppen *Terreincontrole* en *Terrein wissen* zijn uit het palet gehaald.
+- **0.12.0:** eerste versie van de projectlocatie, gebaseerd op de IFC-georeferentie (vervangen door 0.12.1).
 - **0.11.2:** pijlers (en landhoofden) van een brug blijven een **massieve kolom** tot de onderkant; alleen het brugdek wordt een dun
   dek. De eigenschap heet in de bron `relatievehoogteligging` (zonder streepje); die wordt nu herkend. De **Terreincontrole** toont per
   brugobject de soort, hoogteligging, oppervlakte, hoogtes en wat eronder ligt, en meldt kleine verschillen in oppervlakte (onder 3% of
@@ -111,6 +112,27 @@ Archicad: **PDOK Import > PDOK Import openen...**. Het palet toont nu de **kaart
 - Of de lagen, het venster en de ID's in Archicad zelf kloppen met wat het paneel meldt.
 - Wat de database-melding zegt na *Naar plattegrond* en *Naar 3D*.
 - Of de lijn en het vlak er in Archicad goed uitzien (het gat, de kleur, de pen).
+
+## De projectlocatie (voor andere gebruikers)
+
+De import werkt in RD, het landelijke stelsel. In Archicad is het **Survey Point het nulpunt van dat stelsel**: de coordinaten van een
+punt in het Survey Point-stelsel zijn zijn RD-coordinaten. De add-on gebruikt de omrekening die Archicad daarvoor zelf biedt.
+
+**Heeft jouw project het projectnulpunt op RD (0, 0)** en staat het Survey Point op het projectnulpunt, dan is er niets in te stellen.
+
+**Ligt het projectnulpunt ergens anders** (de gewone situatie: het gebouw staat bij het Archicad-nulpunt), zet dan het Survey Point op
+**min de RD-coordinaten van het projectnulpunt**:
+
+1. Archicad: **Options > Project Preferences > Location Settings > Survey Point**.
+2. Vul bij **Easting, Northing en Elevation** de plek van het Survey Point *ten opzichte van het projectnulpunt* in. Ligt het projectnulpunt op
+   RD (260250, 482250) en 35,00 m NAP, vul dan in: Easting -260250, Northing -482250, Elevation -35.
+3. Staat het project niet recht op het noorden, vul dan de **Project North**-hoek in.
+4. De **georeferentie voor IFC** (stelselnaam, Eastings, Northings enzovoort) en de **breedte- en lengtegraad** van de projectlocatie hoef je
+   voor deze add-on niet in te vullen; ze worden niet gebruikt.
+
+Het palet toont bovenaan wat het Survey Point zegt: *"Volgens het Survey Point ligt het projectnulpunt op RD (260250, 482250), hoogte
+35,00 m."* Klopt dat niet, of ligt het buiten het bereik van RD, dan staat er een waarschuwing. Het testpaneel heeft **Projectlocatie lezen**
+(de matrix en de uitleg). Test het met een klein gebied rond een gebouw dat je kent: de BGT-lagen moeten op dat gebouw liggen.
 
 ## MDID
 

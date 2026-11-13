@@ -279,12 +279,15 @@ knop.b_mesh = async () => {
   schrijf(e.elementId ? 'Mesh (20 x 20 m, met een gat en twee hoogtepunten, een licht hellend vlak met oppervlak PDOK_weg en een onderkant op ' + (z - 1.0).toFixed(1) + ' m) geplaatst op (' + x0 + ', ' + y0 + '), ID TEST-MESH.' : 'Mesh mislukt: ' + JSON.stringify(e.error || e));
 };
 knop.b_geo = async () => {
-  const p = await stap('Projectlocatie', 'GetGeoLocation'); if (!p) return;
-  const sp = p.surveyPoint, g = sp.geoReferencingParameters, pos = sp.position, pr = sp.positionInProject;
+  const t = await stap('Survey Point', 'GetSurveyPointTransformation'); if (!t) return;
+  const g = await stap('Georeferentie', 'GetGeoLocation');
   const j = await (await fetch('/projectlocatie')).json();
-  schrijf('Survey Point: E ' + pos.eastings + ', N ' + pos.northings + ', hoogte ' + pos.elevation + ' | in het project op (' + pr.x + ', ' + pr.y + ', ' + pr.z + ')\n  stelsel: ' + (g.crsName || '(niet ingevuld)') +
-          ' | as (' + g.xAxisAbscissa + ', ' + g.xAxisOrdinate + '), schaal ' + g.scale + ' | datum ' + g.geodeticDatum + ', ' + g.verticalDatum + ', projectie ' + g.mapProjection +
-          '\n  ' + j.tekst + (j.waarschuwing ? '\n  LET OP: ' + j.waarschuwing : ''));
+  const m = t.projectToSurvey.map(w => Math.round(w * 1e6) / 1e6);
+  let tekst = 'Omrekening project -> Survey Point-stelsel (3 x 4, rij voor rij):\n  ' + m.slice(0, 4).join('  ') + '\n  ' + m.slice(4, 8).join('  ') + '\n  ' + m.slice(8, 12).join('  ') +
+              '\n  ' + j.tekst + (j.waarschuwing ? '\n  LET OP: ' + j.waarschuwing : '');
+  if (g) { const sp = g.surveyPoint, gp = sp.geoReferencingParameters;
+    tekst += '\n  (IFC-georeferentie, niet gebruikt: E ' + sp.position.eastings + ', N ' + sp.position.northings + ', hoogte ' + sp.position.elevation + ', stelsel ' + (gp.crsName || 'niet ingevuld') + ')'; }
+  schrijf(tekst);
 };
 knop.b_basis = async () => {
   schrijf('--- basistests ---');
