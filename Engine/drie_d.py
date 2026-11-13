@@ -403,6 +403,7 @@ def bouw_lichaam(pand, lod, z_verschuiving=0.0, opp_ids=None, driehoeken=False, 
     polygonen = []
     soorten_teller = Counter()
     zonder_driehoeken = 0
+    gaten_gevuld = weggelaten = 0
     for buiten, gaten, soort in vlakken:
         sleutel = TYPE_NAAR_OPPERVLAK.get(soort)
         soorten_teller[sleutel] += 1
@@ -411,6 +412,21 @@ def bouw_lichaam(pand, lod, z_verschuiving=0.0, opp_ids=None, driehoeken=False, 
             b = list(reversed(buiten)) if omkeren else buiten
             gs = [list(reversed(g)) if omkeren else g for g in gaten]
             tris = triangulatie_vlak(wereld, b, gs)
+            if tris is None and opschonen:
+                # Een scheef vlak (soms bijna een meter uit het vlak) met een gat is niet altijd te verdelen. Eerst zonder het gat,
+                # dan met een andere projectie; lukt dat niet, dan laten we het vlak weg (een open lichaam is beter dan geen pand).
+                if gs:
+                    tris = triangulatie_vlak(wereld, b, [])
+                    if tris is not None:
+                        gaten_gevuld += 1
+                if tris is None:
+                    for as_ in range(3):
+                        tris = triangulatie_vlak(wereld, b, [], as_keuze=as_)
+                        if tris is not None:
+                            break
+                if tris is None:
+                    weggelaten += 1
+                    continue
             if tris is not None:
                 for a_, b_, c_ in tris:
                     d = {"vertexIds": [idx(a_), idx(b_), idx(c_)]}
@@ -442,7 +458,7 @@ def bouw_lichaam(pand, lod, z_verschuiving=0.0, opp_ids=None, driehoeken=False, 
     stat = {"vlakken": len(polygonen), "gaten": sum(len(d.get("holes", [])) for d in polygonen),
             "hoekpunten": len(vertices), "volume": abs(volume), "omgekeerd": omkeren,
             "open_randen": open_randen, "meer_dan_twee": meer_dan_twee, "overgeslagen": overgeslagen,
-            "soorten": soorten_teller, "zonder_driehoeken": zonder_driehoeken}
+            "soorten": soorten_teller, "zonder_driehoeken": zonder_driehoeken, "gaten_gevuld": gaten_gevuld, "weggelaten": weggelaten}
     return {"x": bx, "y": by, "z": bz}, {"vertices": vertices, "polygons": polygonen}, stat
 
 
@@ -464,7 +480,7 @@ def _schoon_ring(ring):
     return ring if len(ring) >= 3 else None
 
 
-def opgeschoonde_polygonen(polygonen, vertices, min_oppervlak=1e-3):
+def opgeschoonde_polygonen(polygonen, vertices, min_oppervlak=1e-5):
     """Na het samenvoegen van hoekpunten: ringen zonder dubbele punten en spijkers, vlakken die geen vlak meer zijn en
     dubbele vlakken (dezelfde hoekpunten) weglaten."""
     uit, gezien = [], set()
@@ -490,6 +506,22 @@ def opgeschoonde_polygonen(polygonen, vertices, min_oppervlak=1e-3):
         else:
             nieuw.pop("holes", None)
         uit.append(nieuw)
+    # Een rand die in meer dan twee vlakken zit, kan niet in een lichaam: houd de twee grootste vlakken en laat de rest vallen.
+    pt = lambda i: (vertices[i]["x"], vertices[i]["y"], vertices[i]["z"])
+    for _ in range(5):
+        per_rand = {}
+        for n, d in enumerate(uit):
+            for ring in [d["vertexIds"]] + [h["vertexIds"] for h in d.get("holes", [])]:
+                for a, b in zip(ring, ring[1:] + ring[:1]):
+                    per_rand.setdefault((min(a, b), max(a, b)), set()).add(n)
+        weg = set()
+        for vlakken_aan_rand in per_rand.values():
+            if len(vlakken_aan_rand) > 2:
+                op_grootte = sorted(vlakken_aan_rand, key=lambda n: -vlak_oppervlak([pt(i) for i in uit[n]["vertexIds"]]))
+                weg.update(op_grootte[2:])
+        if not weg:
+            break
+        uit = [d for n, d in enumerate(uit) if n not in weg]
     return uit
 
 
@@ -642,7 +674,7 @@ def triangulatie_2d(buiten, gaten):
     return tris
 
 
-def triangulatie_vlak(wereld, buiten, gaten):
+def triangulatie_vlak(wereld, buiten, gaten, as_keuze=None):
     """Driehoeken voor een vlak in 3D. wereld: {index: (x, y, z)}; buiten en gaten zijn lijsten van die indexen.
     Geeft een lijst drietallen (indexen), met dezelfde draairichting als het vlak, of None."""
     pb = [wereld[i] for i in buiten]
@@ -655,8 +687,8 @@ def triangulatie_vlak(wereld, buiten, gaten):
         ny += (z1 - z2) * (x1 + x2)
         nz += (x1 - x2) * (y1 + y2)
     normaal = (nx, ny, nz)
-    ax = max(range(3), key=lambda i: abs(normaal[i]))
-    if abs(normaal[ax]) < 1e-12:
+    ax = as_keuze if as_keuze is not None else max(range(3), key=lambda i: abs(normaal[i]))
+    if as_keuze is None and abs(normaal[ax]) < 1e-12:
         return None
     assen = [i for i in range(3) if i != ax]
     ids = list(buiten)
@@ -1010,6 +1042,7 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
                 continue
             fout = str(e.get("error", e))[:160]
             klaar = False
+            pog = []                                    # de stappen die voor dit pand zijn geprobeerd (voor het log)
             # Binnen hetzelfde detailniveau eerst alle mogelijkheden proberen; pas daarna een lager niveau.
             # 1: alle vlakken in driehoeken (bijvoorbeeld vlakken die niet helemaal vlak zijn)
             res = bouw_lichaam(g["pand"], g["lod"], z_verschuiving, opp, driehoeken=True)
@@ -1020,9 +1053,13 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
                     gelukt += 1
                     methoden["met driehoeken"] += 1
                     klaar = True
+                pog.append("driehoeken: " + ("gelukt" if klaar else "geweigerd"))
+            else:
+                pog.append("driehoeken: niet op te bouwen")
             # 2: elk deel van het pand als eigen morph (gedeelde scheidingsmuren geven anders een gesloten lichaam dat niet kan)
             if not klaar:
                 uitkomst = in_delen(g, g["lod"])
+                pog.append("in delen: " + ("gelukt" if uitkomst else ("geweigerd" if len(g["pand"].get("delen") or []) >= 2 else "niet van toepassing (een deel)")))
                 if uitkomst:
                     manieren, gebruikt = uitkomst
                     gelukt += 1
@@ -1039,6 +1076,7 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
                     gelukt += 1
                     methoden["als open lichaam"] += 1
                     klaar = True
+                pog.append("open lichaam: " + ("gelukt" if klaar else "geweigerd"))
             # 3b: opgeschoond (hoekpunten op dezelfde plek samengevoegd, spijkers en samenvallende vlakken weg), eerst gesloten, dan open
             if not klaar:
                 schoon = bouw_lichaam(g["pand"], g["lod"], z_verschuiving, opp, driehoeken=True, opschonen=True)
@@ -1050,7 +1088,11 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
                             gelukt += 1
                             methoden[f"als een lichaam, {naam}"] += 1
                             klaar = True
+                            pog.append(f"{naam}: gelukt")
                             break
+                        pog.append(f"{naam}: geweigerd")
+                else:
+                    pog.append("opgeschoond: niet op te bouwen")
             # 4: pas dan een lager detailniveau
             for lod in ([] if klaar else g["alternatieven"]):
                 res = bouw_lichaam(g["pand"], lod, z_verschuiving, opp)
@@ -1063,9 +1105,13 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
                     methoden[f"lager LoD ({lod})"] += 1
                     lager.append((g["id"], g["lod"], lod, fout))
                     if len(lager) <= 3:
-                        d_ = bouw_lichaam(g["pand"], g["lod"], z_verschuiving, opp, driehoeken=True)
-                        if d_:
-                            print(f"   pand {g['id']}: het geweigerde LoD {g['lod']}-lichaam bevat {beschrijf_lichaam(d_[1])}")
+                        print(f"   pand {g['id']}: stappen op LoD {g['lod']}: " + "; ".join(pog))
+                        for naam, kw in (("gewoon", {}), ("opgeschoond", {"opschonen": True})):
+                            d_ = bouw_lichaam(g["pand"], g["lod"], z_verschuiving, opp, driehoeken=True, **kw)
+                            if d_:
+                                extra = (f" ({d_[2]['gaten_gevuld']} vlakken met gat zonder gat gemaakt, {d_[2]['weggelaten']} vlakken weggelaten)"
+                                         if naam == "opgeschoond" else "")
+                                print(f"      het geweigerde LoD {g['lod']}-lichaam ({naam}) bevat {beschrijf_lichaam(d_[1])}{extra}")
                     klaar = True
                     break
             if not klaar:
@@ -1073,6 +1119,7 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
                 mislukte.append(g["id"])
                 if len(mislukte) <= 3:
                     print(f"   pand {g['id']} mislukt (LoD {g['lod']}): {fout}")
+                    print(f"      stappen: " + "; ".join(pog))
                     for naam, kw in (("gewoon", {}), ("opgeschoond", {"opschonen": True})):
                         d_ = bouw_lichaam(g["pand"], g["lod"], z_verschuiving, opp, driehoeken=True, **kw)
                         if d_:
@@ -1088,7 +1135,7 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
             print(f"   {len(geweigerd)} panden zijn op een lager LoD gemaakt omdat Archicad LoD 2.2 weigerde:")
             for pid, van, naar, fout in geweigerd[:10]:
                 print(f"      {pid}: LoD {van} werd geweigerd ({fout}), gemaakt op LoD {naar}")
-    else:
+    elif not mislukt:
         print("   Alle panden zijn op LoD 2.2 gemaakt.")
     if mislukte:
         print("Mislukte panden (eerste 10):", ", ".join(mislukte[:10]))
