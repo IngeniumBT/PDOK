@@ -5,11 +5,17 @@ Eén `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat ee
 
 ## Stand van zaken
 
+Wat nog openstaat en wat we hebben gemeten staat in **OPENSTAAND.md**.
+
+
 - **0.1:** skelet (menu en melding). Gelukt.
 - **0.2:** de motor (Python) zit in het `.apx`, wordt gestart, en de kaart staat in een palet in Archicad. Gelukt.
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.17.5: soorten meten.** Nieuw hulpmiddel *Soorten meten*: telt voor het getekende gebied per combinatie van `functie`, `fysiek_voorkomen` en `plus_fysiek_voorkomen` hoeveel objecten en hoeveel m2 er zijn, in de 2D-bron (per BGT-laag met vlakken,
+  zonder beeindigde objecten en zonder objecten boven of onder maaiveld) en in de 3D-bron (de terreintegels; daar heten de velden `bgt_functie`, `bgt_fysiekvoorkomen` en `plus_fysiekvoorkomen`, plus `tabelnaam`, `bgt_type` en `plus_type`), en per eigenschap alle waarden. Het verandert niets;
+  het is de eerste stap voor kleuren en oppervlakken per soort (zie OPENSTAAND.md).
 - **0.17.4: echte stappen blijven staan.** De naadsluiting trok het hoogteverschil tussen meshes die elkaar raken gelijk naar het gemiddelde zolang dat kleiner was dan 0,75 m. Een stap van 50 cm werd daardoor een stap van 0: de lage kant ging 25 cm
   omhoog ("het lage terrein tegen de muur is te hoog") en de hoge kant 25 cm omlaag. De drempel (`NAAD_MAX_VERSCHIL`) is nu 0,10 m en instelbaar in het palet (*Naden: hoogteverschillen tot ... cm gelijktrekken*). Alleen kleine verschillen (ruis,
   interpolatie op T-kruisingen) worden nog gelijkgetrokken; grotere stappen (stoeprand, kade, talud) blijven zoals in de bron. Een mesh-import voor een gebied dat je al had, wordt niet vanzelf aangepast: wis het terrein en importeer opnieuw.

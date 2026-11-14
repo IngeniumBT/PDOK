@@ -10,6 +10,7 @@ import tempfile
 import time
 import uuid
 import copy
+from collections import defaultdict
 import webbrowser
 import zipfile
 import threading
@@ -417,6 +418,78 @@ def _instelling_ids(html):
         if m and 'type="file"' not in tag and m.group(1) not in ("adres",):
             ids.append(m.group(1))
     return ids
+
+
+# ---------------------------------------------------------------- Soorten meten (welke BGT-eigenschappen komen voor?)
+def _eigenschap(eig, *namen):
+    for n in namen:
+        w = eig.get(n)
+        if w not in (None, ""):
+            return str(w).strip()
+    return "(leeg)"
+
+
+def _ring_oppervlak(ring):
+    return abs(sum(ring[i][0] * ring[(i + 1) % len(ring)][1] - ring[(i + 1) % len(ring)][0] * ring[i][1] for i in range(len(ring)))) / 2
+
+
+def _geo_oppervlak(geo):
+    """Oppervlak (m2) van een Polygon of MultiPolygon in RD; 0 voor andere geometrieen."""
+    if not geo:
+        return 0.0
+    soort, c = geo.get("type"), geo.get("coordinates")
+    polygonen = [c] if soort == "Polygon" else (c if soort == "MultiPolygon" else [])
+    return sum(_ring_oppervlak(p[0]) - sum(_ring_oppervlak(g) for g in p[1:]) for p in polygonen if p and p[0])
+
+
+def soorten_in_gebied(gebied):
+    """Meet voor het gebied welke combinaties van BGT-eigenschappen (functie, fysiek voorkomen, plus-fysiek voorkomen) er voorkomen, in de 2D-bron
+    (de BGT-lagen bij PDOK) en in de 3D-bron (de terreintegels), met aantallen en oppervlakte. Er wordt niets veranderd."""
+    x_min, y_min, x_max, y_max = gebied
+    print(f"Soorten in het gebied x {x_min:.0f} tot {x_max:.0f}, y {y_min:.0f} tot {y_max:.0f}\n")
+    print("=== 2D: de BGT-lagen bij PDOK ===")
+    totaal_n, totaal_opp = 0, 0.0
+    for laag in sorted(KLEUREN):
+        try:
+            features = haal_features("bgt", laag, x_min, y_min, x_max, y_max)
+        except Exception as fout:
+            print(f"{laag}: ophalen mislukt ({fout})")
+            continue
+        combos = defaultdict(lambda: [0, 0.0])
+        andere_niveaus = 0
+        for f in features:
+            eig = f.get("properties") or {}
+            geo = f.get("geometry") or {}
+            if eig.get("eind_registratie") or geo.get("type") not in ("Polygon", "MultiPolygon"):
+                continue
+            if (eig.get("relatieve_hoogteligging") or 0) != 0:
+                andere_niveaus += 1
+                continue
+            sleutel = (_eigenschap(eig, "functie", "bgt_functie"), _eigenschap(eig, "fysiek_voorkomen", "bgt_fysiekvoorkomen"),
+                       _eigenschap(eig, "plus_fysiek_voorkomen", "plus_fysiekvoorkomen"))
+            combos[sleutel][0] += 1
+            combos[sleutel][1] += _geo_oppervlak(geo)
+        if not combos and not andere_niveaus:
+            continue
+        n = sum(v[0] for v in combos.values())
+        opp = sum(v[1] for v in combos.values())
+        totaal_n += n
+        totaal_opp += opp
+        print(f"\n{laag}: {n} vlakken, {opp:.0f} m2, {len(combos)} combinaties" + (f" (daarnaast {andere_niveaus} objecten boven of onder maaiveld, die niet worden meegeteld)" if andere_niveaus else ""))
+        for (functie, fysiek, plus), (nn, oo) in sorted(combos.items(), key=lambda x: -x[1][1])[:15]:
+            print(f"   {functie} | {fysiek} | {plus}: {nn}, {oo:.0f} m2")
+        if len(combos) > 15:
+            print(f"   ... en nog {len(combos) - 15} kleinere combinaties")
+    print(f"\nTotaal 2D: {totaal_n} vlakken, {totaal_opp:.0f} m2.")
+    print("\n=== 3D: de terreintegels (3D Basisvoorziening) ===")
+    if terrein is None:
+        print("terrein.py ontbreekt; de 3D-bron kan niet worden bekeken.")
+        return 0
+    try:
+        terrein.soorten_3d((x_min, y_min, x_max, y_max))
+    except Exception as fout:
+        print(f"De 3D-bron kon niet worden gelezen: {fout}")
+    return 0
 
 
 def zet_archicad_poort(poort):
@@ -1528,6 +1601,7 @@ PAGINA = """<!DOCTYPE html>
    </div>
    <div class="rij" style="margin:0 0 6px">
     <button id="drie_kwaliteit" class="compact" title="Meet voor het getekende gebied hoe goed het terrein in Archicad bij de bron past: hoogte, gaten, overlap en de kwaliteit van de driehoeken (verandert niets)">Meshkwaliteit meten</button>
+    <button id="drie_soorten" class="compact" title="Telt voor het getekende gebied welke combinaties van BGT-eigenschappen (functie, fysiek voorkomen, plus-fysiek voorkomen) er in de 2D- en de 3D-bron voorkomen, met aantallen en oppervlakte (verandert niets)">Soorten meten</button>
     <button id="drie_scheidingen_meten" class="compact" title="Meet voor het getekende gebied hoe de scheidingen (muren, hekken) op het terrein staan en op elkaar aansluiten, volgens de bron (verandert niets)">Scheidingen meten</button>
    </div>
    <pre id="drie_uit" class="klein" style="display:none;white-space:pre-wrap;max-height:260px;overflow:auto;background:#fff;border:1px solid #ccc;padding:6px;margin:0 0 6px"></pre>
@@ -1648,6 +1722,8 @@ const controleKnop = document.getElementById('drie_controle'), wisKnop = documen
 if (kwaliteitKnop) kwaliteitKnop.onclick = () => terreinActie('/terreinkwaliteit', true);
 const scheidingKnop = document.getElementById('drie_scheidingen_meten');
 if (scheidingKnop) scheidingKnop.onclick = () => terreinActie('/scheidingencontrole', true);
+const soortenKnop = document.getElementById('drie_soorten');
+if (soortenKnop) soortenKnop.onclick = () => terreinActie('/soortenmeten', true);
 if (controleKnop) controleKnop.onclick = () => terreinActie('/terreincontrole', true);
 if (wisKnop) wisKnop.onclick = () => {
   if (!wisKnop.dataset.klaar) {                      // eerst een tweede klik: wissen kan niet per ongeluk
@@ -1668,7 +1744,7 @@ function nogNiet(ids) {                                          // een onderdee
   });
 }
 if (!BESCHIKBAAR.gebouwen) nogNiet(['drie_gebouwen', 'drie_materiaal']);
-if (!BESCHIKBAAR.terrein) nogNiet(['drie_terrein', 'drie_naad', 'drie_overslaan', 'drie_skirt', 'drie_diepte', 'drie_dekken', 'drie_naadmax', 'drie_controle', 'drie_wis', 'drie_kwaliteit', 'drie_scheidingen_meten']);
+if (!BESCHIKBAAR.terrein) nogNiet(['drie_terrein', 'drie_naad', 'drie_overslaan', 'drie_skirt', 'drie_diepte', 'drie_dekken', 'drie_naadmax', 'drie_controle', 'drie_wis', 'drie_kwaliteit', 'drie_scheidingen_meten', 'drie_soorten']);
 if (!BESCHIKBAAR.tekst) nogNiet(['planteksten']);
 const MAX_ZIJDE = __MAX_ZIJDE__;
 const planInfo = document.getElementById('planinfo');

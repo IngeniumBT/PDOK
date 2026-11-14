@@ -3540,6 +3540,50 @@ def diagnose_scheidingen(k, gebied):
     return 0
 
 
+def _leeg(w):
+    w = str(w if w is not None else "").strip()
+    return w if w else "(leeg)"
+
+
+def soorten_3d(gebied):
+    """Telt in de 3D-bron (de terreintegels) per combinatie van BGT-eigenschappen hoeveel objecten en hoeveel m2 (in plattegrond) er voor het
+    gebied zijn: soort (CityJSON), BGT-tabel, functie, fysiek voorkomen en plus-fysiek voorkomen. Er wordt niets veranderd."""
+    alle, _ = verzamel(gebied, None, True)
+    soorten = (set(OBJECT_TYPEN) | {"OtherConstruction"})
+    combos = defaultdict(lambda: [0, 0.0])
+    per_eigenschap = {sl: Counter() for sl in ("bgt_functie", "bgt_fysiekvoorkomen", "plus_fysiekvoorkomen", "plus_functie", "bgt_type", "plus_type")}
+    n_obj, totaal = 0, 0.0
+    for o in alle:
+        if o["type"] not in soorten:
+            continue
+        at = o["attributen"] or {}
+        X, Y, Z = o["xyz"]
+        opp = 0.0
+        for a, b, c in o["driehoeken"]:
+            if gebied[0] <= (X[a] + X[b] + X[c]) / 3 <= gebied[2] and gebied[1] <= (Y[a] + Y[b] + Y[c]) / 3 <= gebied[3]:
+                opp += abs((X[b] - X[a]) * (Y[c] - Y[a]) - (X[c] - X[a]) * (Y[b] - Y[a])) / 2
+        if opp <= 0 and o["driehoeken"]:
+            continue
+        n_obj += 1
+        totaal += opp
+        tabel = str(at.get("tabelnaam") or "").replace("_vlak", "")
+        sleutel = (o["type"], _leeg(tabel), _leeg(at.get("bgt_functie")), _leeg(at.get("bgt_fysiekvoorkomen")), _leeg(at.get("plus_fysiekvoorkomen")))
+        combos[sleutel][0] += 1
+        combos[sleutel][1] += opp
+        for sl in per_eigenschap:
+            per_eigenschap[sl][_leeg(at.get(sl))] += 1
+    print(f"3D-bron (terreintegels): {n_obj} objecten, {totaal:.0f} m2 in plattegrond, {len(combos)} verschillende combinaties.\n")
+    print("Combinaties (CityJSON-soort | BGT-tabel | functie | fysiek voorkomen | plus-fysiek voorkomen): objecten, m2")
+    for (typ, tabel, functie, fysiek, plus), (n, opp) in sorted(combos.items(), key=lambda x: -x[1][1])[:40]:
+        print(f"   {typ} | {tabel} | {functie} | {fysiek} | {plus}: {n}, {opp:.0f} m2")
+    if len(combos) > 40:
+        print(f"   ... en nog {len(combos) - 40} kleinere combinaties")
+    print("\nPer eigenschap (alle waarden met het aantal objecten):")
+    for sl, tel in per_eigenschap.items():
+        print(f"   {sl}: " + ", ".join(f"{w} ({n})" for w, n in tel.most_common()))
+    return 0
+
+
 def wis_terrein(k):
     """Verwijdert alle meshes op de terreinlagen (voor het kaartvenster)."""
     global KAART
