@@ -10,6 +10,10 @@ Eén `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat ee
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.16.0: scheidingen uit de bron.** In de 3D Basisvoorziening staan de BGT-scheidingen (muren, kademuren, hekken) als CityJSON-type `OtherConstruction`; die werden niet gelezen. Nieuw is de keuze
+  *Scheidingen (muren en hekken, als Morphs)*. De gebouwroute (lichaam opbouwen, aanmaken, terugvallen) is daarvoor een *profiel* geworden (`PROFIELEN` in `drie_d.py`: typen, laag, oppervlakken, ID, namen): gebouwen en
+  scheidingen gebruiken dezelfde code. Scheidingen komen op de laag `3D_scheidingen` met het oppervlak `PDOK_scheiding`, het hoogste detailniveau dat het object heeft, het ID uit `3df_id`, en volgen de hoogtekeuze.
+  Het log noemt de soorten (`bgt_type`) en de detailniveaus in de bron. De *Terreincontrole* geeft bij de soorten objecten nu aan welke bij een aparte keuze horen. Geen C++-wijziging.
 - **0.15.1: instellingen onthouden en een melding bij een nieuwe versie.** Het palet bewaart de aangevinkte lagen en pennen, de 3D-opties, de boomnaam, het laatst getekende gebied en de kaartpositie in
   `%LOCALAPPDATA%\PDOKImport\instellingen.json` (naast de motor, dus ze overleven een update; het bestand wordt in een keer weggeschreven, een beschadigd bestand geeft gewoon de beginwaarden).
   De velden die worden onthouden komen uit de pagina zelf, dus nieuwe velden doen vanzelf mee. *standaardinstellingen* onderaan zet alles terug. De motor vraagt bij het starten aan GitHub

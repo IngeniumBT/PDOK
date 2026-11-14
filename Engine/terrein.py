@@ -3036,7 +3036,7 @@ def diagnose_dekking(k, gebied):
     print("Soorten objecten in de bron voor dit gebied (CityJSON-type: aantal, driehoeken, geometrie, 3df_class):")
     for t_ in sorted(soorten):
         n_, tri_, geo_, cls_ = soorten[t_]
-        print(f"   {t_}{'' if t_ in OBJECT_TYPEN else '  (wordt niet geimporteerd)'}: {n_} objecten, {tri_} driehoeken, "
+        print(f"   {t_}{'' if t_ in OBJECT_TYPEN else ('  (aparte keuze: Scheidingen)' if t_ == 'OtherConstruction' else ('  (zijn de gebouwen)' if t_ in ('Building', 'BuildingPart') else '  (wordt niet geimporteerd)'))}: {n_} objecten, {tri_} driehoeken, "
               f"{'/'.join(sorted(geo_)) or '?'}, " + ", ".join(f"{c or '-'} ({k})" for c, k in cls_.most_common(3)))
     print()
     objecten = [o for o in alle_objecten if o["type"] in OBJECT_TYPEN]

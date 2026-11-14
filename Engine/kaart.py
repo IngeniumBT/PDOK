@@ -1094,7 +1094,7 @@ class PlattegrondActief:
         return False
 
 
-def importeer_gebouwen_uit_venster(gebied, materiaal, op_nul=False):
+def importeer_gebouwen_uit_venster(gebied, materiaal, op_nul=False, soort="gebouwen"):
     if drie_d is None:
         print("3D-gebouwen overgeslagen: drie_d.py ontbreekt.")
         return 0
@@ -1106,7 +1106,7 @@ def importeer_gebouwen_uit_venster(gebied, materiaal, op_nul=False):
         return 0
     print("\n=== 3D-gebouwen ===")
     try:
-        return drie_d.importeer_gebouwen(sys.modules[__name__], gebied, materiaal, op_nul)
+        return drie_d.importeer_gebouwen(sys.modules[__name__], gebied, materiaal, op_nul, soort)
     except Exception as fout:
         print("3D-gebouwen importeren mislukt:", fout)
         return 0
@@ -1213,6 +1213,7 @@ def importeer(aanvraag):
     if (x_max - x_min) > MAX_ZIJDE or (y_max - y_min) > MAX_ZIJDE:
         raise ValueError(f"Gebied te groot, maximaal {MAX_ZIJDE} x {MAX_ZIJDE} meter.")
     onderdelen = [n for n, aan in (("3D-gebouwen", aanvraag.get("gebouwen")), ("3D-terrein", aanvraag.get("terrein")),
+                                   ("3D-scheidingen", aanvraag.get("scheidingen")),
                                    ("3D-bomen", aanvraag.get("bomen")), ("bestemmingsplan", aanvraag.get("plan")),
                    ("2D-lagen", aanvraag.get("lagen")))
                   if aan]
@@ -1266,6 +1267,9 @@ def _importeer_onderdelen(aanvraag, begin, binnen, tijd, gebied):
     if aanvraag.get("terrein") and not moet_stoppen():
         begin("3D-terrein")
         totaal += tijd("3D-terrein", lambda: _importeer(aanvraag, "terrein"))     # wisselt alleen zelf van venster als meshes mislukken
+    if aanvraag.get("scheidingen") and not moet_stoppen():
+        begin("3D-scheidingen")
+        totaal += tijd("3D-scheidingen", lambda: _importeer(aanvraag, "scheidingen"))
     if aanvraag.get("bomen") and not moet_stoppen():
         begin("3D-bomen")
         BOMEN_VOORTGANG["binnen"] = binnen
@@ -1308,6 +1312,9 @@ def _importeer(aanvraag, deel="alles"):
     if deel == "gebouwen":
         return importeer_gebouwen_uit_venster(
             (x_min, y_min, x_max, y_max), bool(aanvraag.get("gebouwenmateriaal", True)), aanvraag.get("hoogtemodus") == "nul")
+    if deel == "scheidingen":
+        return importeer_gebouwen_uit_venster(
+            (x_min, y_min, x_max, y_max), True, aanvraag.get("hoogtemodus") == "nul", "scheidingen")
     if deel == "bomen":
         niveau = 0.0 if aanvraag.get("hoogtemodus") == "nul" else None            # bij vlak terrein staan de bomen op 0 m
         return importeer_bomen_uit_venster((x_min, y_min, x_max, y_max), aanvraag.get("boomobject", ""), niveau)
@@ -1499,6 +1506,7 @@ PAGINA = """<!DOCTYPE html>
   </div>
   <label class="klein" style="display:block;margin:2px 0"><input type="checkbox" id="drie_dekken" checked> Viaducten en bruggen meenemen (als dun dek)</label>
 
+  <label><input type="checkbox" id="drie_scheidingen"> Scheidingen (muren en hekken, als Morphs)</label><br>
   <label><input type="checkbox" id="drie_bomen"> Bomen (BGT-vegetatiepunten, als 3D-object op het terrein)</label>
   <div style="position:relative">
    <input type="text" id="drie_boomobject" value="Boom stedenbouw 02" placeholder="Zoek een bibliotheekobject, bijvoorbeeld boom" autocomplete="off">
@@ -1863,8 +1871,9 @@ document.getElementById('importeer').onclick = async () => {
   const hoogtemodus = document.getElementById('hoogte_nul').checked ? 'nul' : 'bron';      // bron: NAP uit de 3D Basisvoorziening; nul: vlak op 0 m
   const terreindiepte = parseFloat(String(document.getElementById('drie_diepte').value).replace(',', '.')) || 1;
   const bomen = document.getElementById('drie_bomen').checked;
+  const scheidingen = document.getElementById('drie_scheidingen').checked;
   const boomobject = document.getElementById('drie_boomobject').value;
-  if (!lagen.length && !plan && !gebouwen && !terrein && !bomen) {
+  if (!lagen.length && !plan && !gebouwen && !terrein && !bomen && !scheidingen) {
     status.textContent = 'Vink minstens een laag, 3D-onderdeel of bestemmingsplan aan.';
     return;
   }
@@ -1898,7 +1907,7 @@ document.getElementById('importeer').onclick = async () => {
     const r = await fetch('/import', {method: 'POST',
       body: JSON.stringify({...gebied, lagen, alleniveaus, pennen, plan, planteksten, perceelteksten,
                             gebouwen, gebouwenmateriaal, terrein, terreinnaad, terreinoverslaan, terreinskirt, terreindiepte, terreindekken, hoogtemodus,
-                            bomen, boomobject})});
+                            bomen, boomobject, scheidingen})});
     const d = await r.json();
     if (d.fout) { status.textContent = 'Fout: ' + d.fout; return; }
     timerStart();

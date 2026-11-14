@@ -82,6 +82,23 @@ TYPE_NAAR_OPPERVLAK = {
 }
 
 
+# Een "profiel" zegt welke objecten uit de bron worden gemaakt en hoe: de CityJSON-typen, de laag, de oppervlakken en de namen in het log.
+# Gebouwen en overige bouwwerken (scheidingen: muren, hekken) lopen langs dezelfde route (lichaam opbouwen, aanmaken, terugvallen).
+PROFIELEN = {
+    "gebouwen": {"typen": ("Building",), "laag": LAAGNAAM, "oppervlakken": None, "standaard_opp": None, "enkel": "pand", "meervoud": "panden",
+                 "id_van": lambda sleutel, at: sleutel.split(".")[-1], "lod_rapport": True},
+    "scheidingen": {"typen": ("OtherConstruction",), "laag": "3D_scheidingen",
+                    "oppervlakken": {"scheiding": ("PDOK_scheiding", (0.62, 0.58, 0.52))}, "standaard_opp": "scheiding",
+                    "enkel": "scheiding", "meervoud": "scheidingen",
+                    "id_van": lambda sleutel, at: str(at.get("3df_id") or sleutel.split(".")[-1]), "lod_rapport": False},
+}
+PROFIEL = dict(PROFIELEN["gebouwen"], oppervlakken=None)       # het profiel van de lopende import (hoofd zet het)
+
+
+def laagnaam():
+    return PROFIEL["laag"]
+
+
 def oppervlak_definitie(naam, kleur):
     """Alle velden van een oppervlak; de reflecties lijken op die van gewone oppervlakken in een project
     (met nul diffuse reflectie reageert een oppervlak niet op licht en zie je het zwart)."""
@@ -112,7 +129,7 @@ def zorg_voor_oppervlakken(k, bijwerken=False, definities=None):
     opdracht EnsureSurface van de add-on."""
     try:
         uit = {}
-        for sleutel, (naam, kleur) in (definities or OPPERVLAKKEN).items():
+        for sleutel, (naam, kleur) in (definities or PROFIEL.get("oppervlakken") or OPPERVLAKKEN).items():
             invoer = oppervlak_definitie(naam, kleur)
             invoer["update"] = bool(bijwerken)
             r = k.tapir("EnsureSurface", invoer)
@@ -259,7 +276,7 @@ def panden_in_gebied(data, gebied):
     lees = vertex_lezer(data)
     uit = {}
     for sleutel, o in objecten.items():
-        if o.get("type") != "Building" or o.get("parents"):
+        if o.get("type") not in PROFIEL["typen"] or o.get("parents"):
             continue
         onderdelen = [o] + [objecten[k] for k in (o.get("children") or []) if k in objecten]
         per_lod = {}
@@ -424,7 +441,7 @@ def bouw_lichaam(pand, lod, z_verschuiving=0.0, opp_ids=None, driehoeken=False, 
     kandidaten = []                      # de vlakken die ook een driehoek zouden kunnen worden (meer dan drie hoekpunten, of met gat)
     gekozen = driehoeken if isinstance(driehoeken, (set, frozenset)) else None
     for n_vlak, (buiten, gaten, soort) in enumerate(vlakken):
-        sleutel = TYPE_NAAR_OPPERVLAK.get(soort)
+        sleutel = TYPE_NAAR_OPPERVLAK.get(soort) or PROFIEL.get("standaard_opp")
         soorten_teller[sleutel] += 1
         oppervlak_id = opp_ids[sleutel] if opp_ids and sleutel in opp_ids else None
         if len(buiten) > 3 or gaten:
@@ -812,7 +829,19 @@ def lees_argumenten(argumenten):
     return gebied, droog, maaiveld, max_n
 
 
+def kies_profiel(argumenten):
+    """Zet het profiel van de lopende import (gebouwen of scheidingen) op grond van --soort."""
+    soort = "gebouwen"
+    if "--soort" in argumenten and argumenten.index("--soort") + 1 < len(argumenten):
+        soort = argumenten[argumenten.index("--soort") + 1]
+    if soort not in PROFIELEN:
+        raise ValueError(f"Onbekende soort '{soort}'; kies uit: " + ", ".join(PROFIELEN))
+    PROFIEL.clear()
+    PROFIEL.update(PROFIELEN[soort])
+
+
 def hoofd(argumenten):
+    kies_profiel(argumenten)
     if "--ontdubbel" in argumenten:
         return ontdubbel()
     if "--leegmaken" in argumenten:
@@ -825,8 +854,13 @@ def hoofd(argumenten):
 
     panden = verzamel(gebied)
     if not panden:
-        print("Geen panden gevonden in dit gebied.")
+        print(f"Geen {PROFIEL['meervoud']} gevonden in dit gebied.")
         return 1
+
+    if PROFIEL["enkel"] != "pand":                         # laat zien wat er in de bron zit (de soorten en het detailniveau)
+        soorten = Counter(str(p["attributen"].get("bgt_type") or p["attributen"].get("bgt_functie") or p["attributen"].get("3df_class") or "-") for p in panden.values())
+        niveaus = Counter(l for p in panden.values() for l in p["geometrieen"])
+        print(f"{len(panden)} {PROFIEL['meervoud']}: " + ", ".join(f"{k_} {n}" for k_, n in soorten.most_common(8)) + f" | detailniveaus in de bron: {dict(niveaus)}")
 
     # Hoogte-instelling
     z_verschuiving = 0.0
@@ -874,17 +908,17 @@ def hoofd(argumenten):
             continue
         lod, (basis, lichaam, stat) = omzetting
         lod_teller[lod] += 1
-        gebouwen.append({"sleutel": sleutel, "id": pand_id(sleutel), "lod": lod, "basis": basis,
+        gebouwen.append({"sleutel": sleutel, "id": PROFIEL["id_van"](sleutel, pand["attributen"]), "lod": lod, "basis": basis,
                          "lichaam": lichaam, "stat": stat, "alternatieven": keuze[keuze.index(lod) + 1:],
                          "pand": pand})
-    print(f"\n{len(gebouwen)} panden omgezet. Detailniveaus: {dict(lod_teller)}")
+    print(f"\n{len(gebouwen)} {PROFIEL['meervoud']} omgezet. Detailniveaus: {dict(lod_teller)}")
     open_gebouwen = [g for g in gebouwen if g["stat"]["open_randen"] or g["stat"]["meer_dan_twee"]]
     met_gaten = [g for g in gebouwen if g["stat"]["gaten"]]
     print(f"   {sum(g['stat']['vlakken'] for g in gebouwen)} vlakken, "
           f"{sum(g['stat']['hoekpunten'] for g in gebouwen)} hoekpunten, "
           f"{len(met_gaten)} panden met vlakken met gaten, "
           f"{sum(1 for g in gebouwen if g['stat']['omgekeerd'])} panden met omgekeerde oriëntatie hersteld")
-    print(f"   {len(open_gebouwen)} panden zijn niet helemaal gesloten (open of dubbele randen)")
+    print(f"   {len(open_gebouwen)} {PROFIEL['meervoud']} zijn niet helemaal gesloten (open of dubbele randen)")
     soorten = Counter()
     for g in gebouwen:
         soorten.update(g["stat"]["soorten"])
@@ -928,11 +962,11 @@ def ontdubbel():
     kaart = _kaart()
 
     kaart.MAPNAAM = MAP
-    laag = kaart.zorg_voor_laag(LAAGNAAM)
+    laag = kaart.zorg_voor_laag(PROFIEL["laag"])
     ids = bestaande_ids(kaart, laag)
     te_verwijderen = [e for lijst in ids.values() for e in lijst[1:]]
     dubbel = sum(1 for lijst in ids.values() if len(lijst) > 1)
-    print(f"{sum(len(v) for v in ids.values())} Morphs op de laag '{LAAGNAAM}', "
+    print(f"{sum(len(v) for v in ids.values())} Morphs op de laag '{laagnaam()}', "
           f"{len(ids)} verschillende panden, {dubbel} panden komen dubbel voor.")
     if not te_verwijderen:
         print("Niets te verwijderen.")
@@ -947,10 +981,10 @@ def leegmaken(zonder_vraag=False):
     kaart = _kaart()
 
     lagen = kaart.alle_lagen()
-    if LAAGNAAM not in lagen:
-        print(f"De laag '{LAAGNAAM}' bestaat niet in dit project; er is niets te verwijderen.")
+    if PROFIEL["laag"] not in lagen:
+        print(f"De laag '{laagnaam()}' bestaat niet in dit project; er is niets te verwijderen.")
         return 0
-    laag = lagen[LAAGNAAM]["index"]
+    laag = lagen[PROFIEL["laag"]]["index"]
     r = kaart.tapir("GetElementsByType", {"elementType": "Morph"})
     elementen = kaart.pak(r).get("elements", [])
     te_verwijderen = []
@@ -960,7 +994,7 @@ def leegmaken(zonder_vraag=False):
         for e, it in zip(blok, kaart.pak(d).get("detailsOfElements", [])):
             if isinstance(it, dict) and it.get("layerIndex") == laag:
                 te_verwijderen.append(e)
-    print(f"{len(elementen)} Morphs in het project, waarvan {len(te_verwijderen)} op de laag '{LAAGNAAM}'.")
+    print(f"{len(elementen)} Morphs in het project, waarvan {len(te_verwijderen)} op de laag '{laagnaam()}'.")
     if not te_verwijderen:
         print("Niets te verwijderen.")
         return 0
@@ -978,8 +1012,8 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
     kaart = _kaart()
 
     kaart.MAPNAAM = MAP
-    laag = kaart.zorg_voor_laag(LAAGNAAM)
-    print(f"\nLaag '{LAAGNAAM}' in de map '{MAP}' (index {laag}).")
+    laag = kaart.zorg_voor_laag(PROFIEL["laag"])
+    print(f"\nLaag '{laagnaam()}' in de map '{MAP}' (index {laag}).")
     if not forceer:
         try:
             aanwezig = bestaande_ids(kaart, laag)
@@ -989,7 +1023,7 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
         aanwezig_basis = set(aanwezig) | {re.sub(r"-deel\d+$", "", i) for i in aanwezig}      # een pand in delen heet BAGID-deel1, -deel2, ...
         over = [g for g in gebouwen if g["id"] not in aanwezig_basis]
         if len(over) < len(gebouwen):
-            print(f"{len(gebouwen) - len(over)} panden staan al op de laag en worden overgeslagen "
+            print(f"{len(gebouwen) - len(over)} {PROFIEL['meervoud']} staan al op de laag en worden overgeslagen "
                   f"(met --forceer maak je ze toch aan).")
         gebouwen = over
         if not gebouwen:
@@ -1222,9 +1256,11 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
                         d_ = bouw_lichaam(g["pand"], g["lod"], z_verschuiving, opp, driehoeken=True, **kw)
                         if d_:
                             print(f"      lichaam ({naam}): {beschrijf_lichaam(d_[1])}")
-    print(f"\n{gelukt} panden aangemaakt, {mislukt} mislukt.")
-    print("Hoe de panden zijn gemaakt: " + ", ".join(f"{n} {k_}" for k_, n in methoden.most_common()))
-    if lager:
+    print(f"\n{gelukt} {PROFIEL['meervoud']} aangemaakt, {mislukt} mislukt.")
+    print(f"Hoe de {PROFIEL['meervoud']} zijn gemaakt: " + ", ".join(f"{n} {k_}" for k_, n in methoden.most_common()))
+    if not PROFIEL["lod_rapport"]:
+        pass                                                # bij andere objecten is LoD 2.2 geen doel; het gebruikte niveau staat hierboven
+    elif lager:
         bron = [x for x in lager if x[3].startswith(("geen LoD", "een deel heeft geen LoD"))]
         geweigerd = [x for x in lager if not x[3].startswith(("geen LoD", "een deel heeft geen LoD"))]
         if bron:
@@ -1241,7 +1277,7 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
     return 0 if gelukt else 1
 
 
-def importeer_gebouwen(k, gebied, materiaal=True, op_nul=False):
+def importeer_gebouwen(k, gebied, materiaal=True, op_nul=False, soort="gebouwen"):
     """Voor het kaartvenster: haalt de gebouwen voor het gebied (xmin, ymin, xmax, ymax in RD) op en maakt ze
     aan als Morphs. k is de kaart-module. Geeft het aantal aangemaakte Morphs terug."""
     global KAART
@@ -1252,7 +1288,11 @@ def importeer_gebouwen(k, gebied, materiaal=True, op_nul=False):
         argumenten.append("--zonder-materiaal")
     if op_nul:
         argumenten.append("--op-nul")
-    hoofd(argumenten)
+    argumenten += ["--soort", soort]
+    try:
+        hoofd(argumenten)
+    finally:
+        kies_profiel(["--soort", "gebouwen"])               # het volgende gebruik begint weer met de gebouwen
     return LAATSTE["gelukt"]
 
 
