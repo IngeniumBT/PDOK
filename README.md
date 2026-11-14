@@ -10,6 +10,8 @@ Eén `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat ee
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.16.1: de scheidingen uit de terreintegels.** Bij 0.16.0 werden de scheidingen opgezocht in de tegels van de gebouwencollectie (`basisbestand_gebouwen`), waar alleen gebouwen in zitten (*"0 scheidingen"*). Ze staan
+  in de terreintegels (`basisbestand_gebouwen_terreinen`, de `volledig_...`-bestanden). Het profiel *scheidingen* legt nu die collectie vast; het log noemt het goede woord (*scheidingen* in plaats van *panden*).
 - **0.16.0: scheidingen uit de bron.** In de 3D Basisvoorziening staan de BGT-scheidingen (muren, kademuren, hekken) als CityJSON-type `OtherConstruction`; die werden niet gelezen. Nieuw is de keuze
   *Scheidingen (muren en hekken, als Morphs)*. De gebouwroute (lichaam opbouwen, aanmaken, terugvallen) is daarvoor een *profiel* geworden (`PROFIELEN` in `drie_d.py`: typen, laag, oppervlakken, ID, namen): gebouwen en
   scheidingen gebruiken dezelfde code. Scheidingen komen op de laag `3D_scheidingen` met het oppervlak `PDOK_scheiding`, het hoogste detailniveau dat het object heeft, het ID uit `3df_id`, en volgen de hoogtekeuze.

@@ -88,6 +88,7 @@ PROFIELEN = {
     "gebouwen": {"typen": ("Building",), "laag": LAAGNAAM, "oppervlakken": None, "standaard_opp": None, "enkel": "pand", "meervoud": "panden",
                  "id_van": lambda sleutel, at: sleutel.split(".")[-1], "lod_rapport": True},
     "scheidingen": {"typen": ("OtherConstruction",), "laag": "3D_scheidingen",
+                    "collectie": "basisbestand_gebouwen_terreinen",         # de scheidingen staan in de terreintegels, niet in die van de gebouwen
                     "oppervlakken": {"scheiding": ("PDOK_scheiding", (0.62, 0.58, 0.52))}, "standaard_opp": "scheiding",
                     "enkel": "scheiding", "meervoud": "scheidingen",
                     "id_van": lambda sleutel, at: str(at.get("3df_id") or sleutel.split(".")[-1]), "lod_rapport": False},
@@ -778,7 +779,7 @@ def pand_id(sleutel):
 
 
 def verzamel(gebied):
-    tegels = kies_tegels(gebied)
+    tegels = kies_tegels(gebied, PROFIEL.get("collectie"))      # None: de collectie van de gebouwen
     print(f"{len(tegels)} tegel(s) voor dit gebied:")
     for p in tegels:
         print(f"   {os.path.basename(p['download_link'])}  luchtfoto {p.get('jaargang_luchtfoto')}  "
@@ -801,7 +802,7 @@ def verzamel(gebied):
                     print(f"   {i.filename}: ligt buiten het gebied, overgeslagen")
                     continue
                 gevonden = panden_in_gebied(data, gebied)
-                print(f"   {i.filename}: {len(gevonden)} panden in het gebied "
+                print(f"   {i.filename}: {len(gevonden)} {PROFIEL['meervoud']} in het gebied "
                       f"(CityJSON {data.get('version')})")
                 for k, v in gevonden.items():
                     panden.setdefault(k, v)
