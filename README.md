@@ -10,6 +10,9 @@ Eén `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat ee
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.17.4: echte stappen blijven staan.** De naadsluiting trok het hoogteverschil tussen meshes die elkaar raken gelijk naar het gemiddelde zolang dat kleiner was dan 0,75 m. Een stap van 50 cm werd daardoor een stap van 0: de lage kant ging 25 cm
+  omhoog ("het lage terrein tegen de muur is te hoog") en de hoge kant 25 cm omlaag. De drempel (`NAAD_MAX_VERSCHIL`) is nu 0,10 m en instelbaar in het palet (*Naden: hoogteverschillen tot ... cm gelijktrekken*). Alleen kleine verschillen (ruis,
+  interpolatie op T-kruisingen) worden nog gelijkgetrokken; grotere stappen (stoeprand, kade, talud) blijven zoals in de bron. Een mesh-import voor een gebied dat je al had, wordt niet vanzelf aangepast: wis het terrein en importeer opnieuw.
 - **0.17.3: scheidingen meten.** Een nieuw hulpmiddel meet de scheidingen (muren, hekken) in de bron voor het getekende gebied: de vorm (open randen, soorten vlakken, hoogte), de stand op het terrein (onderkant en bovenkant ten opzichte van het terrein in de bron,
   per punt in plattegrond) en de aansluiting tussen scheidingen (punten binnen 20 cm: op dezelfde plek met een hoogteverschil, of net niet op dezelfde plek). Het verandert niets; het is bedoeld om te zien waarom bepaalde aansluitingen er niet goed uitzien.
 - **0.17.2: de meting leesbaarder.** Een samenvatting bovenaan (welk deel van het terreinoppervlak binnen 1, 5 en 20 cm van de bron ligt, gewogen naar oppervlak in plattegrond, zowel in hoogte als loodrecht op het oppervlak). (Bijna) verticale

@@ -27,7 +27,7 @@ Opties:
                          aansluiten: hoogteverschillen en net-niet-samenvallende punten, met ligging en ID's
     --venster-test       (geen gebied nodig, Archicad open) test of in het actieve venster een Mesh en een Morph
                          kunnen worden aangemaakt; draai het met het 3D-venster actief en met de plattegrond actief
-    --naadmax X          grotere hoogteverschillen dan X meter (standaard 0,75) worden niet gelijkgetrokken: dat
+    --naadmax X          grotere hoogteverschillen dan X meter (standaard 0,10) worden niet gelijkgetrokken: dat
                          zijn echte sprongen, zoals een viaduct, een kade of een trap
     --naad X             hoe de hoogte op een naad wordt bepaald: gemiddelde (standaard), weg, laagste, hoogste.
                          'weg' houdt de hoogte van wegen vast (daarna landgebruik, begroeiing, water)
@@ -605,7 +605,7 @@ NAAD_MARGE_STANDAARD = 0.03   # m: standaardmarge waarbinnen punten en randen va
 NAAD_CEL = 5.0            # m: celgrootte van de ruimtelijke index
 NAAD_PRIORITEIT = ["Road", "LandUse", "PlantCover", "WaterBody"]
 NAAD_BELEID = ("gemiddelde", "weg", "laagste", "hoogste")
-NAAD_MAX_VERSCHIL = 0.75  # m: een groter hoogteverschil is een echte sprong en wordt niet gelijkgetrokken
+NAAD_MAX_VERSCHIL = 0.10  # m: een groter hoogteverschil is een echte stap (kade, stoeprand, talud) en wordt niet gelijkgetrokken; was 0,75, maar dan werd bijvoorbeeld een stap van 50 cm platgetrokken (het lage terrein werd te hoog)
 
 
 MIN_RAND = 0.005          # m: kortere randen in een omtrek worden door Archicad vaak geweigerd
@@ -3547,7 +3547,7 @@ def wis_terrein(k):
     return leegmaken(zonder_vraag=True)
 
 
-def importeer_terrein(k, gebied, oppervlakken=True, naadsluiting=True, sla_over=(), skirt=None, diepte=None, dekken=True, vlak=None):
+def importeer_terrein(k, gebied, oppervlakken=True, naadsluiting=True, sla_over=(), skirt=None, diepte=None, dekken=True, vlak=None, naadmax=None):
     """Voor het kaartvenster: haalt het terrein voor het gebied (xmin, ymin, xmax, ymax in RD) op en maakt het
     aan als Meshes. naadsluiting zet de naadsluiting aan of uit; sla_over is een lijst BGT-typen (bgt_type) die
     worden overgeslagen. Maakt ook de terreinoppervlakken aan. k is de kaart-module.
@@ -3569,6 +3569,11 @@ def importeer_terrein(k, gebied, oppervlakken=True, naadsluiting=True, sla_over=
         niveau = vlak_niveau(gebied, vlak[0], vlak[1])
         LAATSTE_VLAK_NIVEAU = niveau
         argumenten += ["--vlak-niveau", repr(float(niveau))]
+    try:
+        if naadmax is not None and float(naadmax) >= 0:
+            argumenten += ["--naadmax", repr(float(naadmax))]
+    except (TypeError, ValueError):
+        pass
     if not dekken:
         argumenten.append("--geen-dekken")
     if skirt in SKIRT_TYPEN:

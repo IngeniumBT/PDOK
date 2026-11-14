@@ -1,6 +1,6 @@
 # PDOK Import voor Archicad - handleiding voor proefgebruikers
 
-Versie 0.17.3 (proefversie). Deze add-on haalt gegevens van PDOK (de BGT, het kadaster, bestemmingsplannen en de 3D Basisvoorziening) op
+Versie 0.17.4 (proefversie). Deze add-on haalt gegevens van PDOK (de BGT, het kadaster, bestemmingsplannen en de 3D Basisvoorziening) op
 en zet ze in je Archicad-project: als lijnen en vlakken, als 3D-gebouwen, als terrein en als bomen.
 
 ## Wat heb je nodig
@@ -58,7 +58,7 @@ Daarna kies je wat je importeert:
   scheidingsmuren) kan Archicad niet als een geheel maken; zo'n pand wordt dan in **delen** gemaakt (`BAGID-deel1`, `BAGID-deel2`, ...), nog steeds op LoD 2.2. Weigert Archicad een pand om een andere reden (bijvoorbeeld hoekpunten op bijna dezelfde plek), dan wordt het eerst **opgeschoond** (hoekpunten die op elkaar vallen samengevoegd, vlakken die niet in driehoeken te verdelen zijn zonder gat gemaakt of weggelaten, randen die in meer dan twee vlakken zitten teruggebracht; de add-on zoekt dan met proefaanmaken (die direct weer verwijderd worden) de kleinste groep vlakken die in driehoeken moet; de rest blijft een gewoon vlak) en opnieuw op LoD 2.2 geprobeerd, voordat een lager niveau wordt gekozen. Na de import
   meldt het overzicht hoeveel panden op welke manier zijn gemaakt, en of er panden zijn die in de bron geen LoD 2.2 hebben.
 - **Terrein** (als meshes, op vier lagen: wegen, landgebruik, begroeiing en water): elk BGT-object wordt een mesh met een eigen oppervlak. *Naadsluiting*
-  trekt vlakken die tegen elkaar liggen gelijk, zodat er geen spleten zijn. *Terreintypen overslaan* laat soorten weg (gescheiden door `;`).
+  trekt vlakken die tegen elkaar liggen gelijk, zodat er geen spleten zijn. Daarbij bepaalt *Naden: hoogteverschillen tot ... cm gelijktrekken* (standaard 10 cm) tot welk hoogteverschil dat gebeurt; een groter verschil is een echte stap (een stoeprand, kade of talud) en blijft zoals in de bron. Een hogere waarde sluit de naden strakker, maar trekt echte stappen plat; een lagere waarde (bijvoorbeeld 2 cm) laat vrijwel alles zoals het is. *Terreintypen overslaan* laat soorten weg (gescheiden door `;`).
   *Onderkant* bepaalt of het terrein een massief **volume** wordt, **zijvlakken** krijgt of alleen een **bovenvlak**; de diepte geeft de onderkant
   in meters onder het laagste punt.
 - **Hulpmiddelen voor het terrein** (uitklapbaar): *Terreincontrole* vergelijkt voor het getekende gebied het terrein in Archicad met de bron en meldt wat ontbreekt of afwijkt;

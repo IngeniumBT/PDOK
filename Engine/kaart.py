@@ -1145,7 +1145,7 @@ def meld_voortgang_bomen(tekst, fractie=None):
 BOMEN_VOORTGANG = {"binnen": None}
 
 
-def importeer_terrein_uit_venster(gebied, naadsluiting=True, overslaan="", skirt=None, diepte=None, dekken=True, vlak=None):
+def importeer_terrein_uit_venster(gebied, naadsluiting=True, overslaan="", skirt=None, diepte=None, dekken=True, vlak=None, naadmax=None):
     if terrein is None:
         print("3D-terrein overgeslagen: terrein.py ontbreekt.")
         return 0
@@ -1161,7 +1161,7 @@ def importeer_terrein_uit_venster(gebied, naadsluiting=True, overslaan="", skirt
         if sla_over:
             print("Typen die worden overgeslagen:", ", ".join(sla_over))
         return terrein.importeer_terrein(sys.modules[__name__], gebied, naadsluiting=naadsluiting,
-                                         sla_over=sla_over, skirt=skirt, diepte=diepte, dekken=dekken, vlak=vlak)
+                                         sla_over=sla_over, skirt=skirt, diepte=diepte, dekken=dekken, vlak=vlak, naadmax=naadmax)
     except Exception as fout:
         print("3D-terrein importeren mislukt:", fout)
         return 0
@@ -1328,7 +1328,7 @@ def _importeer(aanvraag, deel="alles"):
             (x_min, y_min, x_max, y_max), bool(aanvraag.get("terreinnaad", True)),
             aanvraag.get("terreinoverslaan", ""), aanvraag.get("terreinskirt"), aanvraag.get("terreindiepte"),
             bool(aanvraag.get("terreindekken", True)),
-            ("eigen", 0.0) if aanvraag.get("hoogtemodus") == "nul" else None)
+            ("eigen", 0.0) if aanvraag.get("hoogtemodus") == "nul" else None, aanvraag.get("terreinnaadmax"))
     if GEOREFERENTIE == "rd":
         midden_x = midden_y = 0
     else:
@@ -1509,6 +1509,7 @@ PAGINA = """<!DOCTYPE html>
    <select id="drie_skirt" style="flex:1 1 auto;min-width:0"><option value="volume" selected>als volume (massief)</option><option value="zijvlakken">met zijvlakken</option><option value="oppervlak">alleen het bovenvlak</option></select>
    <input type="text" id="drie_diepte" value="1" title="Diepte van de onderkant onder het laagste punt, in meter" style="flex:0 0 52px;width:52px"> <span class="klein">m</span>
   </div>
+  <label class="klein" style="display:block;margin:2px 0">Naden: hoogteverschillen tot <input type="text" id="drie_naadmax" value="10" title="Meshes die elkaar raken, worden op hun rand gelijk gemaakt als het hoogteverschil kleiner is dan dit (in centimeters). Een groter verschil blijft zoals in de bron (een stoeprand, kade of talud)." style="width:40px"> cm gelijktrekken; grotere stappen blijven zoals in de bron</label>
   <label class="klein" style="display:block;margin:2px 0"><input type="checkbox" id="drie_dekken" checked> Viaducten en bruggen meenemen (als dun dek)</label>
 
   <label><input type="checkbox" id="drie_scheidingen"> Scheidingen (muren en hekken, als Morphs)</label><br>
@@ -1667,7 +1668,7 @@ function nogNiet(ids) {                                          // een onderdee
   });
 }
 if (!BESCHIKBAAR.gebouwen) nogNiet(['drie_gebouwen', 'drie_materiaal']);
-if (!BESCHIKBAAR.terrein) nogNiet(['drie_terrein', 'drie_naad', 'drie_overslaan', 'drie_skirt', 'drie_diepte', 'drie_dekken', 'drie_controle', 'drie_wis', 'drie_kwaliteit', 'drie_scheidingen_meten']);
+if (!BESCHIKBAAR.terrein) nogNiet(['drie_terrein', 'drie_naad', 'drie_overslaan', 'drie_skirt', 'drie_diepte', 'drie_dekken', 'drie_naadmax', 'drie_controle', 'drie_wis', 'drie_kwaliteit', 'drie_scheidingen_meten']);
 if (!BESCHIKBAAR.tekst) nogNiet(['planteksten']);
 const MAX_ZIJDE = __MAX_ZIJDE__;
 const planInfo = document.getElementById('planinfo');
@@ -1880,6 +1881,8 @@ document.getElementById('importeer').onclick = async () => {
   const terreinoverslaan = document.getElementById('drie_overslaan').value;
   const terreinskirt = document.getElementById('drie_skirt').value;
   const terreindekken = document.getElementById('drie_dekken').checked;
+  const naadmaxCm = parseFloat(String(document.getElementById('drie_naadmax').value).replace(',', '.'));
+  const terreinnaadmax = isFinite(naadmaxCm) && naadmaxCm >= 0 ? naadmaxCm / 100 : null;
   const hoogtemodus = document.getElementById('hoogte_nul').checked ? 'nul' : 'bron';      // bron: NAP uit de 3D Basisvoorziening; nul: vlak op 0 m
   const terreindiepte = parseFloat(String(document.getElementById('drie_diepte').value).replace(',', '.')) || 1;
   const bomen = document.getElementById('drie_bomen').checked;
@@ -1918,7 +1921,7 @@ document.getElementById('importeer').onclick = async () => {
   try {
     const r = await fetch('/import', {method: 'POST',
       body: JSON.stringify({...gebied, lagen, alleniveaus, pennen, plan, planteksten, perceelteksten,
-                            gebouwen, gebouwenmateriaal, terrein, terreinnaad, terreinoverslaan, terreinskirt, terreindiepte, terreindekken, hoogtemodus,
+                            gebouwen, gebouwenmateriaal, terrein, terreinnaad, terreinoverslaan, terreinskirt, terreindiepte, terreindekken, terreinnaadmax, hoogtemodus,
                             bomen, boomobject, scheidingen})});
     const d = await r.json();
     if (d.fout) { status.textContent = 'Fout: ' + d.fout; return; }
