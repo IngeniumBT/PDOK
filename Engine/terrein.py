@@ -3138,6 +3138,7 @@ def diagnose_dekking(k, gebied):
 KWALITEIT_CEL = 5.0          # m: rastermaat voor het opzoeken van driehoeken
 KWALITEIT_DREMPELS = (0.01, 0.05, 0.20)      # m: afwijkingen die we tellen
 KWALITEIT_MAX_MONSTERS = 60000                # hoogstens zoveel brondriehoeken worden gemeten (anders een steekproef)
+KWALITEIT_MIN_NORMAAL = 0.02                  # een vlak hoort bij het bovenvlak als zijn normaal minstens zo omhoog wijst (0,02 = alleen echt verticale zijkanten vallen weg)
 
 
 def _driehoek_z(px, py, t):
@@ -3160,6 +3161,15 @@ def _percentiel(waarden, p):
         return 0.0
     s_ = sorted(waarden)
     return s_[min(len(s_) - 1, int(p * len(s_)))]
+
+
+def _helling(t):
+    """De helling van een driehoek in graden (0 = vlak, 90 = verticaal)."""
+    ax, ay, az, bx, by, bz, cx, cy, cz = t
+    ux, uy, uz, vx, vy, vz = bx - ax, by - ay, bz - az, cx - ax, cy - ay, cz - az
+    nx, ny, nz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
+    lengte = math.sqrt(nx * nx + ny * ny + nz * nz)
+    return 90.0 if lengte < 1e-12 else math.degrees(math.acos(min(1.0, abs(nz) / lengte)))
 
 
 def _driehoek_hoek_en_oppervlak(t):
@@ -3193,12 +3203,17 @@ def diagnose_kwaliteit(k, gebied):
     bron, bron_n = {}, 0
     for o in objecten:
         X, Y, Z = o["xyz"]
-        lijst = []
+        kanten = Counter()                                 # een rand die maar in een driehoek zit, hoort bij de omtrek van het object
+        for a, b, c in o["driehoeken"]:
+            for e_ in ((a, b), (b, c), (c, a)):
+                kanten[(min(e_), max(e_))] += 1
+        lijst, rand = [], []
         for a, b, c in o["driehoeken"]:
             if gebied[0] <= (X[a] + X[b] + X[c]) / 3 <= gebied[2] and gebied[1] <= (Y[a] + Y[b] + Y[c]) / 3 <= gebied[3]:
                 lijst.append((X[a], Y[a], Z[a], X[b], Y[b], Z[b], X[c], Y[c], Z[c]))
+                rand.append(any(kanten[(min(e_), max(e_))] == 1 for e_ in ((a, b), (b, c), (c, a))))
         if lijst:
-            bron[basis_id(o["id"])] = {"type": o["type"], "tri": lijst}
+            bron[basis_id(o["id"])] = {"type": o["type"], "tri": lijst, "rand": rand}
             bron_n += len(lijst)
     print(f"Bron: {bron_n} driehoeken in {len(bron)} objecten (alleen driehoeken met het zwaartepunt in het gebied).")
     stap = max(1, bron_n // KWALITEIT_MAX_MONSTERS)         # een grote meting wordt een steekproef: elke stap-ste driehoek
@@ -3217,7 +3232,7 @@ def diagnose_kwaliteit(k, gebied):
     fouten = 0
     for i in range(0, len(elementen), 10):
         blok = elementen[i:i + 10]
-        r = k.tapir("GetMeshSurfaces", {"elements": [{"elementId": e["elementId"]} for e, _, _ in blok]})
+        r = k.tapir("GetMeshSurfaces", {"elements": [{"elementId": e["elementId"]} for e, _, _ in blok], "minNormalZ": KWALITEIT_MIN_NORMAAL})
         opp = k.pak(r).get("surfaces", [])
         for (e, bid, typ), oppervlak in zip(blok, opp):
             if "error" in oppervlak or not oppervlak.get("triangles"):
@@ -3253,6 +3268,9 @@ def diagnose_kwaliteit(k, gebied):
     meting = defaultdict(lambda: {"hoek": [], "zwaarte": [], "buiten_ander": 0, "gat": 0, "n": 0})
     slechtste = []
     gat_punten = []
+    per_object = defaultdict(lambda: {"typ": "", "totaal": 0, "gat": 0, "gat_opp": 0.0, "bron_opp": 0.0, "hel": []})
+    plek = {"rand": [], "binnen": []}                      # afwijkingen in de zwaartepunten: aan de rand van een object, of erbinnen
+    per_helling = defaultdict(list)                        # afwijkingen per hellingsklasse
     for bid, b in bron.items():
         m = meting[b["type"]]
         punten = {}
@@ -3267,21 +3285,33 @@ def diagnose_kwaliteit(k, gebied):
                 d = min(gevonden, key=lambda zz: abs(zz - z)) - z
                 m["hoek"].append(abs(d))
                 if abs(d) >= KWALITEIT_DREMPELS[1]:
-                    slechtste.append((abs(d), d, bid, b["type"], px, py, z))
-        for t in b["tri"][::stap]:                                                    # in de zwaartepunten van de bronvlakken
+                    slechtste.append((abs(d), d, bid, b["type"], px, py, z, None))
+        po = per_object[bid]
+        po["typ"] = b["type"]
+        for n_t in range(0, len(b["tri"]), stap):                                    # in de zwaartepunten van de bronvlakken
+            t = b["tri"][n_t]
             px, py, z = (t[0] + t[3] + t[6]) / 3, (t[1] + t[4] + t[7]) / 3, (t[2] + t[5] + t[8]) / 3
+            hel = _helling(t)
+            opp_t = _driehoek_hoek_en_oppervlak(t)[1]
+            po["totaal"] += 1
+            po["bron_opp"] += opp_t
             alle = zoek(px, py)
             eigen = [zz for eig, zz in alle if eig == bid]
             if eigen:
                 d = min(eigen, key=lambda zz: abs(zz - z)) - z
                 m["zwaarte"].append(abs(d))
+                plek["rand" if b["rand"][n_t] else "binnen"].append(abs(d))
+                per_helling["< 30 graden" if hel < 30 else "30 tot 60" if hel < 60 else "60 tot 80" if hel < 80 else "80 graden of steiler"].append(abs(d))
                 if abs(d) >= KWALITEIT_DREMPELS[1]:
-                    slechtste.append((abs(d), d, bid, b["type"], px, py, z))
+                    slechtste.append((abs(d), d, bid, b["type"], px, py, z, hel))
             elif alle:
                 m["buiten_ander"] += 1
             else:
                 m["gat"] += 1
-                gat_punten.append((px, py, bid, b["type"], math.sqrt(max(0.0, _driehoek_hoek_en_oppervlak(t)[1]))))
+                po["gat"] += 1
+                po["gat_opp"] += opp_t
+                po["hel"].append(hel)
+                gat_punten.append((px, py, bid, b["type"], math.sqrt(max(0.0, opp_t))))
     print("\nHoogte: het verschil tussen het oppervlak in Archicad en de brondriehoeken (millimeters; gemeten op de hoekpunten en in de zwaartepunten):")
     tot = {"hoek": [], "zwaarte": []}
     for typ in sorted(meting):
@@ -3298,13 +3328,21 @@ def diagnose_kwaliteit(k, gebied):
     if slechtste:
         print("   de grootste afwijkingen (Archicad min bron):")
         gezien = set()
-        for _, d, bid, typ, px, py, z in sorted(slechtste, reverse=True):
+        for _, d, bid, typ, px, py, z, hel in sorted(slechtste, key=lambda x: -x[0]):
             if bid in gezien:
                 continue
             gezien.add(bid)
-            print(f"      {d * 1000:+.0f} mm bij ({px:.1f}, {py:.1f}): {typ} {bid[:12]}, bron {z:.2f} m")
+            print(f"      {d * 1000:+.0f} mm bij ({px:.1f}, {py:.1f}): {typ} {bid}, bron {z:.2f} m" + (f", helling {hel:.0f} graden" if hel is not None else " (op een hoekpunt)"))
             if len(gezien) >= 8:
                 break
+    print("\nWaar zitten de afwijkingen? (gemeten in de zwaartepunten van de brondriehoeken)")
+    for naam, w in (("aan de rand van een object (naadsluiting)", plek["rand"]), ("binnen een object", plek["binnen"])):
+        if w:
+            print(f"   {naam}: n={len(w)}, gemiddeld {1000 * sum(w) / len(w):.1f} mm, 95% {1000 * _percentiel(w, 0.95):.1f} mm, > 5 cm: {sum(1 for x in w if x > 0.05)} ({100 * sum(1 for x in w if x > 0.05) / len(w):.1f}%)")
+    for naam in ("< 30 graden", "30 tot 60", "60 tot 80", "80 graden of steiler"):
+        w = per_helling.get(naam, [])
+        if w:
+            print(f"   helling {naam}: n={len(w)}, gemiddeld {1000 * sum(w) / len(w):.1f} mm, > 5 cm: {sum(1 for x in w if x > 0.05)} ({100 * sum(1 for x in w if x > 0.05) / len(w):.1f}%)")
     # 2. dekking
     n_buiten = sum(m["buiten_ander"] for m in meting.values())
     n_gat = sum(m["gat"] for m in meting.values())
@@ -3313,9 +3351,9 @@ def diagnose_kwaliteit(k, gebied):
     print(f"   en bij {n_gat} op geen enkel oppervlak (een gat in het terrein)." if n_gat else "   en bij geen enkele op een plek zonder oppervlak: er zijn geen gaten.")
     if gat_punten:
         oppervlak = sum(g[4] ** 2 for g in gat_punten)
-        print(f"   die {n_gat} driehoeken beslaan samen ongeveer {oppervlak:.0f} m2; de grootste:")
-        for px, py, bid, typ, zijde in sorted(gat_punten, key=lambda g: -g[4])[:6]:
-            print(f"      bij ({px:.1f}, {py:.1f}): {typ} {bid[:12]}")
+        print(f"   die {n_gat} driehoeken beslaan samen ongeveer {oppervlak:.0f} m2. Per object (de objecten met de meeste gaten):")
+        for bid, po in sorted(((b_, p_) for b_, p_ in per_object.items() if p_["gat"]), key=lambda x: -x[1]["gat_opp"])[:8]:
+            print(f"      {po['typ']} {bid}: {po['gat']} van {po['totaal']} driehoeken zonder oppervlak ({po['gat_opp']:.0f} van {po['bron_opp']:.0f} m2), gemiddelde helling daarvan {sum(po['hel']) / len(po['hel']):.0f} graden")
     # 3. overlap: staat er meer dan een mesh op dezelfde plek?
     dubbel, gestapeld, tot_n = 0, 0, 0
     voorbeelden = []

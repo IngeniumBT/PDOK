@@ -10,6 +10,9 @@ Eén `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat ee
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.17.1: de meshkwaliteit-meting nauwkeuriger.** De eerste meting (0.17.0) liet steile vlakken (normaal-z onder 0,3, helling boven ongeveer 73 graden) buiten het bovenvlak; bij een talud of kade telde dat als gat en gaf het grote
+  schijnbare hoogteverschillen. Nu gaat de grens naar 0,02 (alleen echt verticale zijkanten vallen weg). Nieuw in het rapport: de helling bij elke grote afwijking, de afwijkingen aan de rand van een object (waar de naadsluiting ingrijpt) apart van
+  die binnen een object, de afwijkingen per hellingsklasse, en per object met gaten het aantal driehoeken, het oppervlak en de gemiddelde helling (met het volledige ID). Geen C++-wijziging.
 - **0.17.0: meshkwaliteit meten.** Nieuwe opdracht `GetMeshSurfaces` in de add-on: het bovenoppervlak van elementen zoals Archicad het zelf heeft gedriehoekt (alleen de vlakken die omhoog kijken, in wereldcoordinaten, als platte lijsten;
   naar Tapirs model-toegang). Het hulpmiddel *Meshkwaliteit meten* (in het uitklapvak onder Terrein) vergelijkt dat met de bron: de **hoogteafwijking** in de hoekpunten en de zwaartepunten van de brondriehoeken (per soort, 95%-waarde, de grootste
   afwijkingen met plek), de **dekking** (zwaartepunten zonder oppervlak = een gat, met een schatting van het oppervlak), de **overlap** (dubbel of gestapeld oppervlak) en de **kwaliteit van de driehoeken** (scherpe hoeken, hele kleine vlakken). Er wordt niets
