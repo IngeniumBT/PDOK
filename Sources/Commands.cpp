@@ -1942,6 +1942,180 @@ public:
     }
 };
 
+// ---- GetMeshSurfaces {elements: [{elementId}], minNormalZ?} -> {surfaces: [{vertices: [x, y, z, ...], triangles: [i, j, k, ...]} | {error}]}
+//      Het bovenoppervlak van elementen zoals Archicad het zelf heeft gedriehoekt, in wereldcoordinaten: alleen de vlakken die omhoog kijken
+//      (de zijkanten en de onderkant van een mesh met skirt vallen weg). De motor vergelijkt dat met de bron (de meshkwaliteit-meting).
+//      Naar Tapirs Get3DGeometryOfElements: het model wordt via de ModelAccess doorlopen. De lijsten zijn plat (een rij getallen) om de
+//      gegevens klein te houden.
+struct CurrentDatabaseGuard
+{
+    API_DatabaseInfo previous = {};
+    bool switched = false;
+    CurrentDatabaseGuard ()
+    {
+        // ACAPI_ModelAccess_Get3DInfo werkt vanuit de plattegrond en het 3D-venster, maar niet vanuit een 3D-document, doorsnede of layout.
+        if (ACAPI_Database_GetCurrentDatabase (&previous) == NoError && previous.typeID != APIWind_FloorPlanID && previous.typeID != APIWind_3DModelID) {
+            API_DatabaseInfo floorPlan = {};
+            floorPlan.typeID = APIWind_FloorPlanID;
+            if (ACAPI_Window_GetDatabaseInfo (&floorPlan) == NoError && ACAPI_Database_ChangeCurrentDatabase (&floorPlan) == NoError) {
+                switched = true;
+            }
+        }
+    }
+    ~CurrentDatabaseGuard ()
+    {
+        if (switched) {
+            ACAPI_Database_ChangeCurrentDatabase (&previous);
+        }
+    }
+};
+
+class GetMeshSurfacesCommand final : public CommandBase
+{
+public:
+    virtual GS::String GetName () const override { return "GetMeshSurfaces"; }
+
+    virtual GS::ObjectState Execute (const GS::ObjectState& parameters, GS::ProcessControl&) const override
+    {
+        GS::Array<GS::ObjectState> elements;
+        parameters.Get ("elements", elements);
+        double minNormalZ = 0.3;
+        parameters.Get ("minNormalZ", minNormalZ);
+
+        GS::ObjectState response;
+        const auto& surfaces = response.AddList<GS::ObjectState> ("surfaces");
+        CurrentDatabaseGuard databaseGuard;
+
+        for (const GS::ObjectState& element : elements) {
+            const GS::ObjectState* elementId = element.Get ("elementId");
+            if (elementId == nullptr) {
+                surfaces (ErrorResponse (APIERR_BADPARS, "elementId ontbreekt."));
+                continue;
+            }
+            API_Elem_Head head = {};
+            head.guid = GuidOfObject (*elementId);
+            GSErrCode err = ACAPI_Element_GetHeader (&head);
+            if (err != NoError) {
+                surfaces (ErrorResponse (err, "Het element staat niet in het project."));
+                continue;
+            }
+            API_ElemInfo3D info3D = {};
+            err = ACAPI_ModelAccess_Get3DInfo (head, &info3D);
+            if (err != NoError) {
+                surfaces (ErrorResponse (err, "Het 3D-model van het element kon niet worden gelezen."));
+                continue;
+            }
+
+            GS::ObjectState surface;
+            const auto& vertexList = surface.AddList<double> ("vertices");
+            const auto& triangleList = surface.AddList<Int32> ("triangles");
+            Int32 usedVertices = 0;
+
+            for (Int32 iBody = info3D.fbody; iBody <= info3D.lbody; ++iBody) {
+                API_Component3D component = {};
+                component.header.typeID = API_BodyID;
+                component.header.index = iBody;
+                if (ACAPI_ModelAccess_GetComponent (&component) != NoError || component.body.nPgon == 0) {
+                    continue;
+                }
+                const API_BodyType body = component.body;      // component wordt hieronder opnieuw gebruikt
+
+                // de hoekpunten van dit lichaam in wereldcoordinaten (1-gebaseerd in Archicad)
+                GS::Array<API_Coord3D> bodyVertices;
+                for (Int32 iVert = 1; iVert <= body.nVert; ++iVert) {
+                    component.header.typeID = API_VertID;
+                    component.header.index = iVert;
+                    API_Coord3D vertex = { 0.0, 0.0, 0.0 };
+                    if (ACAPI_ModelAccess_GetComponent (&component) == NoError) {
+                        const double* tmx = body.tranmat.tmx;
+                        const double x = component.vert.x, y = component.vert.y, z = component.vert.z;
+                        vertex = API_Coord3D { tmx[0] * x + tmx[1] * y + tmx[2] * z + tmx[3],
+                                               tmx[4] * x + tmx[5] * y + tmx[6] * z + tmx[7],
+                                               tmx[8] * x + tmx[9] * y + tmx[10] * z + tmx[11] };
+                    }
+                    bodyVertices.Push (vertex);
+                }
+                GS::Array<Int32> newIndex;                       // hoekpunt van dit lichaam -> index in de uitvoer (-1: nog niet gebruikt)
+                newIndex.SetSize (bodyVertices.GetSize ());
+                for (UIndex i = 0; i < newIndex.GetSize (); ++i) {
+                    newIndex[i] = -1;
+                }
+
+                for (Int32 iPgon = 1; iPgon <= body.nPgon; ++iPgon) {
+                    component.header.typeID = API_PgonID;
+                    component.header.index = iPgon;
+                    if (ACAPI_ModelAccess_GetComponent (&component) != NoError) {
+                        continue;
+                    }
+                    const API_PgonType pgon = component.pgon;
+
+                    // de buitenste contour van het vlak (een 0 scheidt de buitenrand van de gaten; die laten we weg)
+                    GS::Array<Int32> loop;
+                    for (Int32 iPedg = pgon.fpedg; iPedg <= pgon.lpedg; ++iPedg) {
+                        component.header.typeID = API_PedgID;
+                        component.header.index = iPedg;
+                        if (ACAPI_ModelAccess_GetComponent (&component) != NoError) {
+                            continue;
+                        }
+                        const Int32 pedg = component.pedg.pedg;
+                        if (pedg == 0) {
+                            break;
+                        }
+                        component.header.typeID = API_EdgeID;
+                        component.header.index = pedg > 0 ? pedg : -pedg;
+                        if (ACAPI_ModelAccess_GetComponent (&component) != NoError) {
+                            continue;
+                        }
+                        loop.Push ((pedg > 0 ? component.edge.vert1 : component.edge.vert2) - 1);
+                    }
+                    if (loop.GetSize () < 3) {
+                        continue;
+                    }
+                    bool valid = true;
+                    for (Int32 id : loop) {
+                        if (id < 0 || static_cast<UIndex> (id) >= bodyVertices.GetSize ()) {
+                            valid = false;
+                        }
+                    }
+                    if (!valid) {
+                        continue;
+                    }
+
+                    // alleen vlakken die omhoog kijken: de normaal (Newell) heeft een positieve z
+                    double nx = 0.0, ny = 0.0, nz = 0.0;
+                    for (UIndex i = 0; i < loop.GetSize (); ++i) {
+                        const API_Coord3D& a = bodyVertices[loop[i]];
+                        const API_Coord3D& b = bodyVertices[loop[(i + 1) % loop.GetSize ()]];
+                        nx += (a.y - b.y) * (a.z + b.z);
+                        ny += (a.z - b.z) * (a.x + b.x);
+                        nz += (a.x - b.x) * (a.y + b.y);
+                    }
+                    const double length = std::sqrt (nx * nx + ny * ny + nz * nz);
+                    if (length < 1e-12 || nz / length < minNormalZ) {
+                        continue;
+                    }
+
+                    // een waaier vanuit het eerste hoekpunt (de vlakken van een mesh zijn driehoeken of convex)
+                    for (UIndex k = 1; k + 1 < loop.GetSize (); ++k) {
+                        const Int32 corners[3] = { loop[0], loop[k], loop[k + 1] };
+                        for (Int32 corner : corners) {
+                            if (newIndex[corner] < 0) {
+                                newIndex[corner] = usedVertices++;
+                                vertexList (bodyVertices[corner].x);
+                                vertexList (bodyVertices[corner].y);
+                                vertexList (bodyVertices[corner].z);
+                            }
+                            triangleList (newIndex[corner]);
+                        }
+                    }
+                }
+            }
+            surfaces (surface);
+        }
+        return response;
+    }
+};
+
 // ---- GetSelectedElements -> {elements: [{elementId}]}
 class GetSelectedElementsCommand final : public CommandBase
 {
@@ -2007,6 +2181,7 @@ GSErrCode RegisterAll ()
     err |= Register<GetGeoLocationCommand> ();
     err |= Register<GetSurveyPointTransformationCommand> ();
     err |= Register<GetLibraryObjectNamesCommand> ();
+    err |= Register<GetMeshSurfacesCommand> ();
     return err;
 }
 

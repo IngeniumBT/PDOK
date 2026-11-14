@@ -442,7 +442,7 @@ class Handler(BasisHandler):
                 self._stuur(200, json.dumps({"opgeslagen": True}), "application/json")
             except (ValueError, OSError) as fout:
                 self._stuur(400, json.dumps({"opgeslagen": False, "fout": str(fout)}), "application/json")
-        elif pad in ("/terreincontrole", "/terreinwissen"):
+        elif pad in ("/terreincontrole", "/terreinwissen", "/terreinkwaliteit"):
             import contextlib
             import io
             lengte = int(self.headers.get("Content-Length") or 0)
@@ -452,9 +452,10 @@ class Handler(BasisHandler):
                 if kaart is None or getattr(kaart, "terrein", None) is None:
                     raise RuntimeError("het terreinonderdeel is niet geladen")
                 with contextlib.redirect_stdout(uit):
-                    if pad == "/terreincontrole":
+                    if pad in ("/terreincontrole", "/terreinkwaliteit"):
                         g = json.loads(body.decode("utf-8") or "{}")
-                        kaart.terrein.diagnose_dekking(kaart, (g["xmin"], g["ymin"], g["xmax"], g["ymax"]))
+                        functie = kaart.terrein.diagnose_dekking if pad == "/terreincontrole" else kaart.terrein.diagnose_kwaliteit
+                        functie(kaart, (g["xmin"], g["ymin"], g["xmax"], g["ymax"]))
                     else:
                         kaart.terrein.wis_terrein(kaart)
             except Exception as fout:  # noqa: BLE001

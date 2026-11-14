@@ -324,6 +324,11 @@ def tapir(naam, parameters=None):
     antwoord = _tapir_ruw(naam, parameters)
     if _T is not None and naam == "GetDetailsOfElements" and antwoord.get("succeeded", True):
         _details_naar_rd(antwoord)
+    if _T is not None and naam == "GetMeshSurfaces" and antwoord.get("succeeded", True):
+        for opp in pak(antwoord).get("surfaces", []):
+            v = opp.get("vertices") or []
+            for i in range(0, len(v) - 2, 3):
+                v[i], v[i + 1], v[i + 2] = naar_rd(v[i], v[i + 1], v[i + 2])
     return antwoord
 
 
@@ -1520,6 +1525,9 @@ PAGINA = """<!DOCTYPE html>
     <button id="drie_controle" class="compact" title="Vergelijkt het terrein in Archicad met de bron voor het getekende gebied en meldt wat ontbreekt">Terreincontrole</button>
     <button id="drie_wis" class="compact" title="Verwijdert alle meshes op de PDOK-terreinlagen (Ongedaan maken in Archicad brengt ze terug)">Terrein wissen</button>
    </div>
+   <div class="rij" style="margin:0 0 6px">
+    <button id="drie_kwaliteit" class="compact" title="Meet voor het getekende gebied hoe goed het terrein in Archicad bij de bron past: hoogte, gaten, overlap en de kwaliteit van de driehoeken (verandert niets)">Meshkwaliteit meten</button>
+   </div>
    <pre id="drie_uit" class="klein" style="display:none;white-space:pre-wrap;max-height:260px;overflow:auto;background:#fff;border:1px solid #ccc;padding:6px;margin:0 0 6px"></pre>
   </details>
  </div>
@@ -1634,7 +1642,8 @@ async function terreinActie(pad, gebiedNodig) {
     const d = await r.json(); uit.textContent = d.tekst || JSON.stringify(d);
   } catch (e) { uit.textContent = 'Mislukt: ' + e; }
 }
-const controleKnop = document.getElementById('drie_controle'), wisKnop = document.getElementById('drie_wis');
+const controleKnop = document.getElementById('drie_controle'), wisKnop = document.getElementById('drie_wis'), kwaliteitKnop = document.getElementById('drie_kwaliteit');
+if (kwaliteitKnop) kwaliteitKnop.onclick = () => terreinActie('/terreinkwaliteit', true);
 if (controleKnop) controleKnop.onclick = () => terreinActie('/terreincontrole', true);
 if (wisKnop) wisKnop.onclick = () => {
   if (!wisKnop.dataset.klaar) {                      // eerst een tweede klik: wissen kan niet per ongeluk
@@ -1655,7 +1664,7 @@ function nogNiet(ids) {                                          // een onderdee
   });
 }
 if (!BESCHIKBAAR.gebouwen) nogNiet(['drie_gebouwen', 'drie_materiaal']);
-if (!BESCHIKBAAR.terrein) nogNiet(['drie_terrein', 'drie_naad', 'drie_overslaan', 'drie_skirt', 'drie_diepte', 'drie_dekken', 'drie_controle', 'drie_wis']);
+if (!BESCHIKBAAR.terrein) nogNiet(['drie_terrein', 'drie_naad', 'drie_overslaan', 'drie_skirt', 'drie_diepte', 'drie_dekken', 'drie_controle', 'drie_wis', 'drie_kwaliteit']);
 if (!BESCHIKBAAR.tekst) nogNiet(['planteksten']);
 const MAX_ZIJDE = __MAX_ZIJDE__;
 const planInfo = document.getElementById('planinfo');

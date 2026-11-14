@@ -10,6 +10,10 @@ Eén `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat ee
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.17.0: meshkwaliteit meten.** Nieuwe opdracht `GetMeshSurfaces` in de add-on: het bovenoppervlak van elementen zoals Archicad het zelf heeft gedriehoekt (alleen de vlakken die omhoog kijken, in wereldcoordinaten, als platte lijsten;
+  naar Tapirs model-toegang). Het hulpmiddel *Meshkwaliteit meten* (in het uitklapvak onder Terrein) vergelijkt dat met de bron: de **hoogteafwijking** in de hoekpunten en de zwaartepunten van de brondriehoeken (per soort, 95%-waarde, de grootste
+  afwijkingen met plek), de **dekking** (zwaartepunten zonder oppervlak = een gat, met een schatting van het oppervlak), de **overlap** (dubbel of gestapeld oppervlak) en de **kwaliteit van de driehoeken** (scherpe hoeken, hele kleine vlakken). Er wordt niets
+  veranderd; het is bedoeld om te zien waar het terrein afwijkt voordat we iets verbeteren. Bij een groot gebied is het een steekproef. Vereist add-on 0.17.0 of nieuwer.
 - **0.16.1: de scheidingen uit de terreintegels.** Bij 0.16.0 werden de scheidingen opgezocht in de tegels van de gebouwencollectie (`basisbestand_gebouwen`), waar alleen gebouwen in zitten (*"0 scheidingen"*). Ze staan
   in de terreintegels (`basisbestand_gebouwen_terreinen`, de `volledig_...`-bestanden). Het profiel *scheidingen* legt nu die collectie vast; het log noemt het goede woord (*scheidingen* in plaats van *panden*).
 - **0.16.0: scheidingen uit de bron.** In de 3D Basisvoorziening staan de BGT-scheidingen (muren, kademuren, hekken) als CityJSON-type `OtherConstruction`; die werden niet gelezen. Nieuw is de keuze

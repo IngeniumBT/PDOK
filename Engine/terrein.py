@@ -72,6 +72,7 @@ type, met het 3df-id van de PDOK-gegevens als Element-ID.
 """
 import math
 import re
+import time
 import sys
 import zipfile
 import json
@@ -3129,6 +3130,222 @@ def diagnose_dekking(k, gebied):
         print(f"\nLET OP: {len(dubbel)} objecten staan dubbel in Archicad (bijvoorbeeld {', '.join(dubbel[:3])}).")
     print("\nBeoordeling: " + ("het terrein in dit gebied is compleet." if not ontbreekt and not afwijkend else
           "er ontbreekt of wijkt iets af. Wis het terrein (knop 'Terrein wissen') en importeer het gebied opnieuw."))
+    return 0
+
+
+# ---------------------------------------------------------------- meshkwaliteit: de bron vergeleken met wat Archicad heeft
+
+KWALITEIT_CEL = 5.0          # m: rastermaat voor het opzoeken van driehoeken
+KWALITEIT_DREMPELS = (0.01, 0.05, 0.20)      # m: afwijkingen die we tellen
+KWALITEIT_MAX_MONSTERS = 60000                # hoogstens zoveel brondriehoeken worden gemeten (anders een steekproef)
+
+
+def _driehoek_z(px, py, t):
+    """De hoogte van driehoek t = (ax, ay, az, bx, by, bz, cx, cy, cz) in het punt (px, py), of None als het punt er niet in ligt."""
+    ax, ay, az, bx, by, bz, cx, cy, cz = t
+    d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+    if abs(d) < 1e-12:
+        return None
+    u = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / d
+    v = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / d
+    w = 1.0 - u - v
+    e = -1e-7
+    if u < e or v < e or w < e:
+        return None
+    return u * az + v * bz + w * cz
+
+
+def _percentiel(waarden, p):
+    if not waarden:
+        return 0.0
+    s_ = sorted(waarden)
+    return s_[min(len(s_) - 1, int(p * len(s_)))]
+
+
+def _driehoek_hoek_en_oppervlak(t):
+    ax, ay, az, bx, by, bz, cx, cy, cz = t
+    a = (ax, ay, az), (bx, by, bz), (cx, cy, cz)
+    zijden = [math.dist(a[0], a[1]), math.dist(a[1], a[2]), math.dist(a[2], a[0])]
+    lm = sum(zijden) / 2
+    opp = math.sqrt(max(0.0, lm * (lm - zijden[0]) * (lm - zijden[1]) * (lm - zijden[2])))
+    kleinste = 180.0
+    for i in range(3):
+        p, q, r = zijden[i], zijden[(i + 1) % 3], zijden[(i + 2) % 3]
+        if q > 1e-9 and r > 1e-9:
+            kleinste = min(kleinste, math.degrees(math.acos(max(-1.0, min(1.0, (q * q + r * r - p * p) / (2 * q * r))))))
+    return kleinste, opp
+
+
+def diagnose_kwaliteit(k, gebied):
+    """Meet hoe goed het terrein in Archicad bij de bron past voor het gebied: de hoogte (verschil tussen het oppervlak in Archicad en de
+    brondriehoeken), de dekking (is er overal oppervlak), de overlap tussen meshes, en de kwaliteit van de driehoeken die Archicad maakt.
+    Er wordt niets veranderd. k is de kaart-module."""
+    global KAART
+    KAART = k
+    k.MAPNAAM = MAP
+    versie = re.findall(r"\d+\.\d+\.\d+", json.dumps(k.tapir("GetAddOnVersion")))
+    if not versie or tuple(int(x) for x in versie[0].split(".")) < (0, 17, 0):
+        print("De meshkwaliteit meten vraagt add-on 0.17.0 of nieuwer (de opdracht GetMeshSurfaces). Werk het .apx bij en probeer het opnieuw.")
+        return 1
+    t0 = time.time()
+    print(f"Meshkwaliteit voor het gebied x {gebied[0]:.0f} tot {gebied[2]:.0f}, y {gebied[1]:.0f} tot {gebied[3]:.0f}\n")
+    objecten, _ = verzamel(gebied, list(OBJECT_TYPEN), False)
+    bron, bron_n = {}, 0
+    for o in objecten:
+        X, Y, Z = o["xyz"]
+        lijst = []
+        for a, b, c in o["driehoeken"]:
+            if gebied[0] <= (X[a] + X[b] + X[c]) / 3 <= gebied[2] and gebied[1] <= (Y[a] + Y[b] + Y[c]) / 3 <= gebied[3]:
+                lijst.append((X[a], Y[a], Z[a], X[b], Y[b], Z[b], X[c], Y[c], Z[c]))
+        if lijst:
+            bron[basis_id(o["id"])] = {"type": o["type"], "tri": lijst}
+            bron_n += len(lijst)
+    print(f"Bron: {bron_n} driehoeken in {len(bron)} objecten (alleen driehoeken met het zwaartepunt in het gebied).")
+    stap = max(1, bron_n // KWALITEIT_MAX_MONSTERS)         # een grote meting wordt een steekproef: elke stap-ste driehoek
+    if stap > 1:
+        print(f"   Dat zijn veel driehoeken; de meting is een steekproef van elke {stap}e driehoek.")
+
+    # de meshes in Archicad op de terreinlagen
+    per_type = terreinmeshes_per_type(k)
+    elementen = []                                         # (guid, basis_id, type)
+    for typ, lijst in per_type.items():
+        for e, it in lijst:
+            if it.get("id") and basis_id(it["id"]) in bron:
+                elementen.append((e, basis_id(it["id"]), typ))
+    print(f"Archicad: {len(elementen)} meshes op de terreinlagen horen bij deze objecten; het oppervlak wordt gelezen...")
+    tri_ac, eigenaars = [], []                             # alle driehoeken in Archicad, en van welk object (basis_id)
+    fouten = 0
+    for i in range(0, len(elementen), 10):
+        blok = elementen[i:i + 10]
+        r = k.tapir("GetMeshSurfaces", {"elements": [{"elementId": e["elementId"]} for e, _, _ in blok]})
+        opp = k.pak(r).get("surfaces", [])
+        for (e, bid, typ), oppervlak in zip(blok, opp):
+            if "error" in oppervlak or not oppervlak.get("triangles"):
+                fouten += 1
+                continue
+            v, tr = oppervlak["vertices"], oppervlak["triangles"]
+            for j in range(0, len(tr), 3):
+                p = [tr[j] * 3, tr[j + 1] * 3, tr[j + 2] * 3]
+                tri_ac.append((v[p[0]], v[p[0] + 1], v[p[0] + 2], v[p[1]], v[p[1] + 1], v[p[1] + 2], v[p[2]], v[p[2] + 1], v[p[2] + 2]))
+                eigenaars.append(bid)
+    print(f"   {len(tri_ac)} driehoeken in het bovenvlak gelezen" + (f"; van {fouten} meshes kon het oppervlak niet worden gelezen" if fouten else "") + ".")
+    if not tri_ac:
+        print("Er is geen oppervlak gelezen: staat het terrein voor dit gebied in Archicad?")
+        return 1
+
+    # een raster om driehoeken snel te vinden
+    raster = defaultdict(list)
+    for n, t in enumerate(tri_ac):
+        for cx_ in range(int(min(t[0], t[3], t[6]) // KWALITEIT_CEL), int(max(t[0], t[3], t[6]) // KWALITEIT_CEL) + 1):
+            for cy_ in range(int(min(t[1], t[4], t[7]) // KWALITEIT_CEL), int(max(t[1], t[4], t[7]) // KWALITEIT_CEL) + 1):
+                raster[(cx_, cy_)].append(n)
+
+    def zoek(px, py):
+        """Alle (eigenaar, z) van driehoeken in Archicad die het punt bevatten."""
+        uit = []
+        for n in raster.get((int(px // KWALITEIT_CEL), int(py // KWALITEIT_CEL)), ()):
+            z = _driehoek_z(px, py, tri_ac[n])
+            if z is not None:
+                uit.append((eigenaars[n], z))
+        return uit
+
+    # 1. hoogte en dekking
+    meting = defaultdict(lambda: {"hoek": [], "zwaarte": [], "buiten_ander": 0, "gat": 0, "n": 0})
+    slechtste = []
+    gat_punten = []
+    for bid, b in bron.items():
+        m = meting[b["type"]]
+        punten = {}
+        for t in b["tri"][::stap]:
+            punten[(round(t[0], 3), round(t[1], 3))] = t[2]
+            punten[(round(t[3], 3), round(t[4], 3))] = t[5]
+            punten[(round(t[6], 3), round(t[7], 3))] = t[8]
+        m["n"] += len(b["tri"][::stap])
+        for (px, py), z in punten.items():                                           # op de hoekpunten van de bron
+            gevonden = [zz for eig, zz in zoek(px, py) if eig == bid]
+            if gevonden:
+                d = min(gevonden, key=lambda zz: abs(zz - z)) - z
+                m["hoek"].append(abs(d))
+                if abs(d) >= KWALITEIT_DREMPELS[1]:
+                    slechtste.append((abs(d), d, bid, b["type"], px, py, z))
+        for t in b["tri"][::stap]:                                                    # in de zwaartepunten van de bronvlakken
+            px, py, z = (t[0] + t[3] + t[6]) / 3, (t[1] + t[4] + t[7]) / 3, (t[2] + t[5] + t[8]) / 3
+            alle = zoek(px, py)
+            eigen = [zz for eig, zz in alle if eig == bid]
+            if eigen:
+                d = min(eigen, key=lambda zz: abs(zz - z)) - z
+                m["zwaarte"].append(abs(d))
+                if abs(d) >= KWALITEIT_DREMPELS[1]:
+                    slechtste.append((abs(d), d, bid, b["type"], px, py, z))
+            elif alle:
+                m["buiten_ander"] += 1
+            else:
+                m["gat"] += 1
+                gat_punten.append((px, py, bid, b["type"], math.sqrt(max(0.0, _driehoek_hoek_en_oppervlak(t)[1]))))
+    print("\nHoogte: het verschil tussen het oppervlak in Archicad en de brondriehoeken (millimeters; gemeten op de hoekpunten en in de zwaartepunten):")
+    tot = {"hoek": [], "zwaarte": []}
+    for typ in sorted(meting):
+        m = meting[typ]
+        for sl in ("hoek", "zwaarte"):
+            tot[sl] += m[sl]
+        def regel(w):
+            return (f"n={len(w)}, gemiddeld {1000 * sum(w) / len(w):.1f}, 95% {1000 * _percentiel(w, 0.95):.1f}, grootste {1000 * max(w):.0f}") if w else "geen metingen"
+        print(f"   {typ}: hoekpunten: {regel(m['hoek'])} | zwaartepunten: {regel(m['zwaarte'])}")
+    for sl, naam in (("hoek", "hoekpunten"), ("zwaarte", "zwaartepunten")):
+        w = tot[sl]
+        if w:
+            print(f"   afwijkingen op {naam} (van {len(w)} metingen): " + ", ".join(f"> {int(d * 100)} cm: {sum(1 for x in w if x > d)}" for d in KWALITEIT_DREMPELS))
+    if slechtste:
+        print("   de grootste afwijkingen (Archicad min bron):")
+        gezien = set()
+        for _, d, bid, typ, px, py, z in sorted(slechtste, reverse=True):
+            if bid in gezien:
+                continue
+            gezien.add(bid)
+            print(f"      {d * 1000:+.0f} mm bij ({px:.1f}, {py:.1f}): {typ} {bid[:12]}, bron {z:.2f} m")
+            if len(gezien) >= 8:
+                break
+    # 2. dekking
+    n_buiten = sum(m["buiten_ander"] for m in meting.values())
+    n_gat = sum(m["gat"] for m in meting.values())
+    n_tot = sum(m["n"] for m in meting.values())
+    print(f"\nDekking: van {n_tot} brondriehoeken ligt het zwaartepunt bij {n_tot - n_buiten - n_gat} op het oppervlak van het eigen object, bij {n_buiten} (door een ander object gedekt: de omtrek wijkt iets af)")
+    print(f"   en bij {n_gat} op geen enkel oppervlak (een gat in het terrein)." if n_gat else "   en bij geen enkele op een plek zonder oppervlak: er zijn geen gaten.")
+    if gat_punten:
+        oppervlak = sum(g[4] ** 2 for g in gat_punten)
+        print(f"   die {n_gat} driehoeken beslaan samen ongeveer {oppervlak:.0f} m2; de grootste:")
+        for px, py, bid, typ, zijde in sorted(gat_punten, key=lambda g: -g[4])[:6]:
+            print(f"      bij ({px:.1f}, {py:.1f}): {typ} {bid[:12]}")
+    # 3. overlap: staat er meer dan een mesh op dezelfde plek?
+    dubbel, gestapeld, tot_n = 0, 0, 0
+    voorbeelden = []
+    stap_ac = max(1, len(tri_ac) // KWALITEIT_MAX_MONSTERS)
+    for n in range(0, len(tri_ac), stap_ac):
+        t = tri_ac[n]
+        px, py, z = (t[0] + t[3] + t[6]) / 3, (t[1] + t[4] + t[7]) / 3, (t[2] + t[5] + t[8]) / 3
+        tot_n += 1
+        for eig, zz in zoek(px, py):
+            if eig == eigenaars[n]:
+                continue
+            if abs(zz - z) < KWALITEIT_DREMPELS[1]:
+                dubbel += 1
+                if len(voorbeelden) < 5:
+                    voorbeelden.append((px, py, eigenaars[n], eig, zz - z))
+                break
+            gestapeld += 1
+            break
+    print(f"\nOverlap: van {tot_n} driehoeken in Archicad liggen er {dubbel} (vrijwel) op dezelfde hoogte als een andere mesh (dubbel oppervlak, kan flikkeren) en {gestapeld} boven of onder een andere mesh (gestapeld, bijvoorbeeld een brugdek).")
+    for px, py, a, b, dz in voorbeelden:
+        print(f"      bij ({px:.1f}, {py:.1f}): {a[:12]} en {b[:12]} ({dz * 1000:+.0f} mm)")
+    # 4. de driehoeken die Archicad maakt
+    scherp = sum(1 for t in tri_ac if _driehoek_hoek_en_oppervlak(t)[0] < 5.0)
+    zeer_scherp = sum(1 for t in tri_ac if _driehoek_hoek_en_oppervlak(t)[0] < 1.0)
+    klein = sum(1 for t in tri_ac if _driehoek_hoek_en_oppervlak(t)[1] < 1e-3)
+    print(f"\nDriehoeken in Archicad: {len(tri_ac)} (de bron heeft er {bron_n}); {scherp} met een hoek kleiner dan 5 graden ({100 * scherp / len(tri_ac):.1f}%), {zeer_scherp} kleiner dan 1 graad, {klein} kleiner dan 10 cm2.")
+    ok = (not gat_punten and tot["zwaarte"] and _percentiel(tot["zwaarte"], 0.95) < 0.02 and dubbel == 0)
+    print("\nBeoordeling: " + ("het terrein past goed bij de bron (95% van de metingen binnen 2 cm, geen gaten, geen dubbel oppervlak)." if ok else
+          "er zijn afwijkingen; zie hierboven wat het meest opvalt (hoogte, gaten of dubbel oppervlak)."))
+    print(f"(meting duurde {time.time() - t0:.0f} s)")
     return 0
 
 
