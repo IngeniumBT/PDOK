@@ -3421,6 +3421,125 @@ def diagnose_kwaliteit(k, gebied):
     return 0
 
 
+def diagnose_scheidingen(k, gebied):
+    """Meet de scheidingen (muren, hekken) uit de bron voor het gebied: hoe ze op het terrein staan (onderkant en hoogte ten opzichte van het
+    terrein in de bron), hoe ze op elkaar aansluiten (spleten en hoogteverschillen op de hoeken) en hoe de vorm is (open randen, vlakken).
+    Er wordt niets veranderd."""
+    global KAART
+    KAART = k
+    print(f"Scheidingencontrole voor het gebied x {gebied[0]:.0f} tot {gebied[2]:.0f}, y {gebied[1]:.0f} tot {gebied[3]:.0f}\n")
+    alle, _ = verzamel(gebied, None, True)
+    muren = [o for o in alle if o["type"] == "OtherConstruction"]
+    grond = [o for o in alle if o["type"] in OBJECT_TYPEN and o["type"] not in BRUGTYPEN]
+    print(f"Bron: {len(muren)} scheidingen en {len(grond)} terreinobjecten voor dit gebied.")
+    if not muren:
+        print("Er zijn geen scheidingen in de bron voor dit gebied.")
+        return 0
+    cel = 5.0
+    raster = defaultdict(list)                              # de terreintriangels van de bron, om de hoogte van het terrein op te zoeken
+    for o in grond:
+        X, Y, Z = o["xyz"]
+        for a, b, c in o["driehoeken"]:
+            t = (X[a], Y[a], Z[a], X[b], Y[b], Z[b], X[c], Y[c], Z[c])
+            for cx_ in range(int(min(t[0], t[3], t[6]) // cel), int(max(t[0], t[3], t[6]) // cel) + 1):
+                for cy_ in range(int(min(t[1], t[4], t[7]) // cel), int(max(t[1], t[4], t[7]) // cel) + 1):
+                    raster[(cx_, cy_)].append(t)
+
+    def terrein_z(px, py):
+        """De hoogte van het terrein in de bron op (px, py); ook net ernaast kijken, want een muur staat vaak op de rand tussen twee objecten."""
+        for dx, dy in ((0, 0), (0.05, 0), (-0.05, 0), (0, 0.05), (0, -0.05), (0.15, 0.15), (-0.15, -0.15), (0.15, -0.15), (-0.15, 0.15)):
+            zs = [z for t in raster.get((int((px + dx) // cel), int((py + dy) // cel)), ()) for z in [_driehoek_z(px + dx, py + dy, t)] if z is not None]
+            if zs:
+                return sum(zs) / len(zs)
+        return None
+
+    kolommen = []                                           # per muur: de punten in plattegrond met hun laagste en hoogste z
+    rapport = []
+    dz_onder, dz_boven, geen_terrein = [], [], 0
+    for o in muren:
+        X, Y, Z = o["xyz"]
+        gebruikt = {i for tri in o["driehoeken"] for i in tri}
+        groep = defaultdict(list)
+        for i in gebruikt:
+            groep[(round(X[i], 2), round(Y[i], 2))].append(Z[i])
+        kanten = Counter()
+        hel = Counter()
+        for a, b, c in o["driehoeken"]:
+            for e_ in ((a, b), (b, c), (c, a)):
+                kanten[(min(e_), max(e_))] += 1
+            h = _helling((X[a], Y[a], Z[a], X[b], Y[b], Z[b], X[c], Y[c], Z[c]))
+            hel["horizontaal" if h < 30 else "verticaal" if h >= 60 else "schuin"] += 1
+        zs = [Z[i] for i in gebruikt]
+        onder_dz, boven_dz = [], []
+        for (px, py), zlijst in groep.items():
+            tz = terrein_z(px, py)
+            if tz is None:
+                continue
+            onder_dz.append(min(zlijst) - tz)
+            boven_dz.append(max(zlijst) - tz)
+        if not onder_dz:
+            geen_terrein += 1
+        dz_onder += onder_dz
+        dz_boven += boven_dz
+        for (px, py), zlijst in groep.items():
+            kolommen.append((px, py, min(zlijst), max(zlijst), o["id"]))
+        rapport.append({"id": o["id"], "type": str((o["attributen"] or {}).get("bgt_type") or "-"), "tri": len(o["driehoeken"]), "hel": dict(hel),
+                        "open": sum(1 for n in kanten.values() if n == 1), "dubbel": sum(1 for n in kanten.values() if n > 2),
+                        "hoogte": max(zs) - min(zs), "zmin": min(zs), "zmax": max(zs), "punten": len(groep),
+                        "onder": (sum(onder_dz) / len(onder_dz)) if onder_dz else None, "boven": (sum(boven_dz) / len(boven_dz)) if boven_dz else None,
+                        "x": sum(p[0] for p in groep) / len(groep), "y": sum(p[1] for p in groep) / len(groep)})
+    print("\nVorm:")
+    print(f"   {sum(r['tri'] for r in rapport)} driehoeken in {len(rapport)} scheidingen; per soort: " + ", ".join(f"{t} {n}" for t, n in Counter(r["type"] for r in rapport).most_common()))
+    print(f"   {sum(1 for r in rapport if r['open'])} van de {len(rapport)} hebben open randen (niet gesloten), {sum(1 for r in rapport if r['dubbel'])} hebben randen in meer dan twee vlakken.")
+    tel = Counter()
+    for r in rapport:
+        tel.update(r["hel"])
+    print(f"   vlakken: {tel.get('horizontaal', 0)} horizontaal (boven- of onderkant), {tel.get('verticaal', 0)} verticaal (zijkanten), {tel.get('schuin', 0)} schuin.")
+    hoogten = sorted(r["hoogte"] for r in rapport)
+    print(f"   hoogte van een scheiding (hoogste min laagste punt): van {hoogten[0]:.2f} tot {hoogten[-1]:.2f} m, mediaan {hoogten[len(hoogten) // 2]:.2f} m.")
+    print("\nStand op het terrein (hoogte van de scheiding ten opzichte van het terrein in de bron, per punt in plattegrond):")
+    if dz_onder:
+        print(f"   onderkant: gemiddeld {sum(dz_onder) / len(dz_onder) * 100:+.0f} cm, tussen {min(dz_onder) * 100:+.0f} en {max(dz_onder) * 100:+.0f} cm (negatief = onder het terrein, positief = erboven)")
+        print(f"      onderkant boven het terrein (zweeft): {sum(1 for d in dz_onder if d > 0.05)} punten ({100 * sum(1 for d in dz_onder if d > 0.05) / len(dz_onder):.0f}%), meer dan 5 cm onder het terrein: {sum(1 for d in dz_onder if d < -0.05)} ({100 * sum(1 for d in dz_onder if d < -0.05) / len(dz_onder):.0f}%)")
+        print(f"   bovenkant: gemiddeld {sum(dz_boven) / len(dz_boven) * 100:+.0f} cm boven het terrein, tussen {min(dz_boven) * 100:+.0f} en {max(dz_boven) * 100:+.0f} cm")
+    if geen_terrein:
+        print(f"   bij {geen_terrein} scheidingen kon het terrein in de bron niet worden gevonden (staan ze buiten het terreingebied?).")
+    for r in sorted((r for r in rapport if r["onder"] is not None), key=lambda r: -abs(r["onder"]))[:5]:
+        print(f"      {r['type']} {r['id']}: onderkant gemiddeld {r['onder'] * 100:+.0f} cm t.o.v. het terrein, hoogte {r['hoogte']:.2f} m, bij ({r['x']:.1f}, {r['y']:.1f})")
+    # aansluiting: punten van verschillende scheidingen die bij elkaar liggen
+    print("\nAansluiting tussen scheidingen (punten van verschillende scheidingen binnen 20 cm van elkaar):")
+    kolom_raster = defaultdict(list)
+    for n, (px, py, zl, zh, oid) in enumerate(kolommen):
+        kolom_raster[(int(px // 0.5), int(py // 0.5))].append(n)
+    gelijk, spleet, hoogteverschil = 0, [], []
+    gezien = set()
+    for n, (px, py, zl, zh, oid) in enumerate(kolommen):
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for m_ in kolom_raster.get((int(px // 0.5) + dx, int(py // 0.5) + dy), ()):
+                    if m_ <= n or kolommen[m_][4] == oid or (n, m_) in gezien:
+                        continue
+                    qx, qy, ql, qh, qid = kolommen[m_]
+                    afstand = math.hypot(px - qx, py - qy)
+                    if afstand > 0.20:
+                        continue
+                    gezien.add((n, m_))
+                    if afstand < 0.01:
+                        gelijk += 1
+                        if abs(zl - ql) > 0.05 or abs(zh - qh) > 0.05:
+                            hoogteverschil.append((max(abs(zl - ql), abs(zh - qh)), px, py, oid, qid, zl - ql, zh - qh))
+                    else:
+                        spleet.append((afstand, px, py, oid, qid, zl - ql, zh - qh))
+    print(f"   op dezelfde plek (binnen 1 cm): {gelijk} punten, waarvan {len(hoogteverschil)} met een hoogteverschil van meer dan 5 cm in onder- of bovenkant")
+    print(f"   net niet op dezelfde plek (1 cm tot 20 cm): {len(spleet)} paren (een spleet of overlap tussen twee scheidingen)")
+    for afw, px, py, a, b, dl, dh in sorted(hoogteverschil, reverse=True)[:5]:
+        print(f"      hoogteverschil {afw * 100:.0f} cm bij ({px:.1f}, {py:.1f}): {a[:14]} en {b[:14]} (onderkant {dl * 100:+.0f}, bovenkant {dh * 100:+.0f} cm)")
+    for afst, px, py, a, b, dl, dh in sorted(spleet, key=lambda x: -x[0])[:5]:
+        print(f"      {afst * 100:.0f} cm uit elkaar bij ({px:.1f}, {py:.1f}): {a[:14]} en {b[:14]} (onderkant {dl * 100:+.0f}, bovenkant {dh * 100:+.0f} cm)")
+    print("\nHoe lezen: staat de onderkant (zweeft) boven het terrein, dan zie je een kier onder de muur; staat hij ver eronder, dan verdwijnt een deel van de muur in de grond. Spleten tussen scheidingen of hoogteverschillen op de hoeken geven de wiggen en trapjes die je op de hoeken ziet.")
+    return 0
+
+
 def wis_terrein(k):
     """Verwijdert alle meshes op de terreinlagen (voor het kaartvenster)."""
     global KAART

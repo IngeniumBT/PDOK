@@ -442,7 +442,7 @@ class Handler(BasisHandler):
                 self._stuur(200, json.dumps({"opgeslagen": True}), "application/json")
             except (ValueError, OSError) as fout:
                 self._stuur(400, json.dumps({"opgeslagen": False, "fout": str(fout)}), "application/json")
-        elif pad in ("/terreincontrole", "/terreinwissen", "/terreinkwaliteit"):
+        elif pad in ("/terreincontrole", "/terreinwissen", "/terreinkwaliteit", "/scheidingencontrole"):
             import contextlib
             import io
             lengte = int(self.headers.get("Content-Length") or 0)
@@ -452,9 +452,10 @@ class Handler(BasisHandler):
                 if kaart is None or getattr(kaart, "terrein", None) is None:
                     raise RuntimeError("het terreinonderdeel is niet geladen")
                 with contextlib.redirect_stdout(uit):
-                    if pad in ("/terreincontrole", "/terreinkwaliteit"):
+                    if pad in ("/terreincontrole", "/terreinkwaliteit", "/scheidingencontrole"):
                         g = json.loads(body.decode("utf-8") or "{}")
-                        functie = kaart.terrein.diagnose_dekking if pad == "/terreincontrole" else kaart.terrein.diagnose_kwaliteit
+                        functie = {"/terreincontrole": kaart.terrein.diagnose_dekking, "/terreinkwaliteit": kaart.terrein.diagnose_kwaliteit,
+                                   "/scheidingencontrole": kaart.terrein.diagnose_scheidingen}[pad]
                         functie(kaart, (g["xmin"], g["ymin"], g["xmax"], g["ymax"]))
                     else:
                         kaart.terrein.wis_terrein(kaart)

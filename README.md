@@ -10,6 +10,8 @@ Eén `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat ee
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.17.3: scheidingen meten.** Een nieuw hulpmiddel meet de scheidingen (muren, hekken) in de bron voor het getekende gebied: de vorm (open randen, soorten vlakken, hoogte), de stand op het terrein (onderkant en bovenkant ten opzichte van het terrein in de bron,
+  per punt in plattegrond) en de aansluiting tussen scheidingen (punten binnen 20 cm: op dezelfde plek met een hoogteverschil, of net niet op dezelfde plek). Het verandert niets; het is bedoeld om te zien waarom bepaalde aansluitingen er niet goed uitzien.
 - **0.17.2: de meting leesbaarder.** Een samenvatting bovenaan (welk deel van het terreinoppervlak binnen 1, 5 en 20 cm van de bron ligt, gewogen naar oppervlak in plattegrond, zowel in hoogte als loodrecht op het oppervlak). (Bijna) verticale
   brondriehoeken (vanaf 85 graden: kademuurtjes en taluds) tellen niet meer als gat of afwijking, want een mesh kan dat niet weergeven. Bij overlap staat of de bron zelf al overlapt of dat de import het veroorzaakt.
   Eerste meting in jouw project: de hoekpunten kloppen op 0,0 mm, de afwijkingen hangen af van de helling en zitten niet aan de rand van objecten.

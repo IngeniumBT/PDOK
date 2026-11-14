@@ -1527,6 +1527,7 @@ PAGINA = """<!DOCTYPE html>
    </div>
    <div class="rij" style="margin:0 0 6px">
     <button id="drie_kwaliteit" class="compact" title="Meet voor het getekende gebied hoe goed het terrein in Archicad bij de bron past: hoogte, gaten, overlap en de kwaliteit van de driehoeken (verandert niets)">Meshkwaliteit meten</button>
+    <button id="drie_scheidingen_meten" class="compact" title="Meet voor het getekende gebied hoe de scheidingen (muren, hekken) op het terrein staan en op elkaar aansluiten, volgens de bron (verandert niets)">Scheidingen meten</button>
    </div>
    <pre id="drie_uit" class="klein" style="display:none;white-space:pre-wrap;max-height:260px;overflow:auto;background:#fff;border:1px solid #ccc;padding:6px;margin:0 0 6px"></pre>
   </details>
@@ -1644,6 +1645,8 @@ async function terreinActie(pad, gebiedNodig) {
 }
 const controleKnop = document.getElementById('drie_controle'), wisKnop = document.getElementById('drie_wis'), kwaliteitKnop = document.getElementById('drie_kwaliteit');
 if (kwaliteitKnop) kwaliteitKnop.onclick = () => terreinActie('/terreinkwaliteit', true);
+const scheidingKnop = document.getElementById('drie_scheidingen_meten');
+if (scheidingKnop) scheidingKnop.onclick = () => terreinActie('/scheidingencontrole', true);
 if (controleKnop) controleKnop.onclick = () => terreinActie('/terreincontrole', true);
 if (wisKnop) wisKnop.onclick = () => {
   if (!wisKnop.dataset.klaar) {                      // eerst een tweede klik: wissen kan niet per ongeluk
@@ -1664,7 +1667,7 @@ function nogNiet(ids) {                                          // een onderdee
   });
 }
 if (!BESCHIKBAAR.gebouwen) nogNiet(['drie_gebouwen', 'drie_materiaal']);
-if (!BESCHIKBAAR.terrein) nogNiet(['drie_terrein', 'drie_naad', 'drie_overslaan', 'drie_skirt', 'drie_diepte', 'drie_dekken', 'drie_controle', 'drie_wis', 'drie_kwaliteit']);
+if (!BESCHIKBAAR.terrein) nogNiet(['drie_terrein', 'drie_naad', 'drie_overslaan', 'drie_skirt', 'drie_diepte', 'drie_dekken', 'drie_controle', 'drie_wis', 'drie_kwaliteit', 'drie_scheidingen_meten']);
 if (!BESCHIKBAAR.tekst) nogNiet(['planteksten']);
 const MAX_ZIJDE = __MAX_ZIJDE__;
 const planInfo = document.getElementById('planinfo');
