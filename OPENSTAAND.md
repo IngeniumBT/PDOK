@@ -9,7 +9,7 @@ handleiding (Markdown en Word), meetinstrumenten (terreincontrole, meshkwaliteit
 
 ## Nieuwe wens: stijlen per soort (functie, fysiek voorkomen, plus-fysiek voorkomen)
 Idee: een stijltabel (regels met voorwaarden, een naam en een kleur) die zowel de 2D-vulkleur als het 3D-oppervlak bepaalt; de meest specifieke regel wint, zonder regel valt het terug op de kleur van de laag. Het bestand komt naast de instellingen te staan, zodat je kleuren kunt aanpassen zonder opnieuw te bouwen. 3D: per mesh een eigen oppervlak (`PDOK_<naam>`), alleen aangemaakt voor wat in het gebied voorkomt. Eerst toepassen op 2D en het terrein in 3D; scheidingen (op `bgt_type`) later.
-Stand: *Soorten meten* is gebouwd (0.17.5). Volgende stap: de echte waarden bekijken en samen een palet vaststellen, daarna de stijltabel bouwen.
+Stand: *Soorten meten* (0.17.5) en de stijltabel met een eerste palet (0.18.0, 2D en het terrein in 3D) zijn gebouwd. Nog te doen: het palet bijstellen op jouw gebruik, de scheidingen in 3D (op `bgt_type`), en zo nodig meer lagen (water, kunstwerken) zodra je gebieden daarvoor soorten laten zien.
 
 ## Nog open, in de volgorde die is afgesproken
 1. **Meer Archicad-versies (27, 28, 30)**: bouwen voor die versies; alleen 29 is getest.

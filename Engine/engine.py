@@ -368,6 +368,18 @@ class Handler(BasisHandler):
                 self.wfile.write(data)
             except OSError:
                 self._stuur(404, "", "text/plain")
+        elif pad == "/stijlenopenen":
+            try:
+                import stijl as _stijl
+                bestand = _stijl.schrijf_standaard()
+                if hasattr(os, "startfile"):
+                    os.startfile(bestand)                   # opent in het programma dat bij .json hoort
+                else:
+                    import webbrowser
+                    webbrowser.open(bestand)
+                self._stuur(200, json.dumps({"pad": bestand}), "application/json")
+            except Exception as fout:  # noqa: BLE001
+                self._stuur(200, json.dumps({"pad": "", "fout": str(fout)}), "application/json")
         elif pad == "/instellingen":
             self._stuur(200, json.dumps(lees_instellingen()), "application/json")
         elif pad == "/update":
@@ -425,6 +437,13 @@ class Handler(BasisHandler):
             except Exception as fout:  # noqa: BLE001
                 antwoord = {"succeeded": False, "error": {"message": type(fout).__name__ + ": " + str(fout)}}
             self._stuur(200, json.dumps(antwoord), "application/json")
+        elif pad == "/stijlenherstel":
+            try:
+                import stijl as _stijl
+                _stijl.herstel()
+                self._stuur(200, json.dumps({"hersteld": True}), "application/json")
+            except Exception as fout:  # noqa: BLE001
+                self._stuur(200, json.dumps({"hersteld": False, "fout": str(fout)}), "application/json")
         elif pad == "/instellingen":
             lengte = int(self.headers.get("Content-Length") or 0)
             body = self.rfile.read(lengte) if lengte else b"{}"

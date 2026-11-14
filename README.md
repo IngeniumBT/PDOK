@@ -13,6 +13,10 @@ Wat nog openstaat en wat we hebben gemeten staat in **OPENSTAAND.md**.
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.18.0: kleuren per soort (2D en terrein in 3D).** Nieuwe module `stijl.py`: een tabel met regels (naam, kleur, voorwaarden op laag, `functie`, `fysiek_voorkomen`, `plus_fysiek_voorkomen` en type, met `alleen` voor 2d of 3d en een `prioriteit`) die zowel de 2D-vulkleur als het 3D-oppervlak bepaalt.
+  2D: elk vlak krijgt zijn kleur per soort (`foregroundColor` per hatch). 3D: elke terreinmesh krijgt een eigen oppervlak `PDOK_<naam>` (topMaterial), aangemaakt of bijgewerkt bij het importeren (de kleur komt uit de tabel); alleen wat in het gebied voorkomt.
+  De standaardtabel (31 regels) is gemaakt op de waarden uit de meting (*Soorten meten*); een eigen tabel staat in `%LOCALAPPDATA%\PDOKImport\stijlen.json` (knoppen *Stijlbestand openen* en *Standaardstijlen herstellen*; een beschadigd of onvolledig bestand geeft de standaardtabel of slaat die regels over, met een melding in het log).
+  Keuzevakjes *2D-vullingen kleuren op functie en fysiek voorkomen* en *3D-terrein: een eigen oppervlak per soort*. Scheidingen in 3D volgen later (op `bgt_type`). Geen C++-wijziging.
 - **0.17.5: soorten meten.** Nieuw hulpmiddel *Soorten meten*: telt voor het getekende gebied per combinatie van `functie`, `fysiek_voorkomen` en `plus_fysiek_voorkomen` hoeveel objecten en hoeveel m2 er zijn, in de 2D-bron (per BGT-laag met vlakken,
   zonder beeindigde objecten en zonder objecten boven of onder maaiveld) en in de 3D-bron (de terreintegels; daar heten de velden `bgt_functie`, `bgt_fysiekvoorkomen` en `plus_fysiekvoorkomen`, plus `tabelnaam`, `bgt_type` en `plus_type`), en per eigenschap alle waarden. Het verandert niets;
   het is de eerste stap voor kleuren en oppervlakken per soort (zie OPENSTAAND.md).

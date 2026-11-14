@@ -10,7 +10,7 @@ import tempfile
 import time
 import uuid
 import copy
-from collections import defaultdict
+from collections import Counter, defaultdict
 import webbrowser
 import zipfile
 import threading
@@ -37,6 +37,11 @@ try:
     import bomen  # bomen op de BGT-vegetatiepunten (bomen.py, met terrein.py en drie_d.py, naast kaart.py)
 except ImportError:
     bomen = None
+
+try:
+    import stijl  # kleur per soort (functie, fysiek voorkomen, plus-fysiek voorkomen); stijl.py naast kaart.py
+except ImportError:
+    stijl = None
 
 SERVER_POORT = 8765
 RD = "http://www.opengis.net/def/crs/EPSG/0/28992"
@@ -700,7 +705,7 @@ def maak_elementen(features, midden_x, midden_y, alle_niveaus):
     vlakken = []
     lijnen = []
 
-    def voeg_vlak_toe(polygoon):
+    def voeg_vlak_toe(polygoon, stijl_eig=None):
         buiten = schoon_vlak(polygoon[0], midden_x, midden_y)
         if len(buiten) < 3 or oppervlak(buiten) < 0.0001:
             return
@@ -710,6 +715,8 @@ def maak_elementen(features, midden_x, midden_y, alle_niveaus):
             if len(gat) >= 3 and oppervlak(gat) >= 0.0001:
                 gaten.append({"polygonOutline": gat})
         element = {"floorInd": 0, "coordinates": buiten, "arcs": []}
+        if stijl_eig is not None:
+            element["_eig"] = stijl_eig                  # alleen voor de kleur; wordt verwijderd voordat het naar Archicad gaat
         if gaten:
             element["holes"] = gaten
         vlakken.append(element)
@@ -728,12 +735,13 @@ def maak_elementen(features, midden_x, midden_y, alle_niveaus):
         if not geo:
             continue
         soort, c = geo["type"], geo["coordinates"]
+        st_eig = stijl.eig_uit_2d(eig) if stijl is not None else None
 
         if soort == "Polygon":
-            voeg_vlak_toe(c)
+            voeg_vlak_toe(c, st_eig)
         elif soort == "MultiPolygon":
             for polygoon in c:
-                voeg_vlak_toe(polygoon)
+                voeg_vlak_toe(polygoon, st_eig)
         elif soort == "LineString":
             voeg_lijn_toe(schoon(c, midden_x, midden_y), 2)
         elif soort == "MultiLineString":
@@ -1218,7 +1226,7 @@ def meld_voortgang_bomen(tekst, fractie=None):
 BOMEN_VOORTGANG = {"binnen": None}
 
 
-def importeer_terrein_uit_venster(gebied, naadsluiting=True, overslaan="", skirt=None, diepte=None, dekken=True, vlak=None, naadmax=None):
+def importeer_terrein_uit_venster(gebied, naadsluiting=True, overslaan="", skirt=None, diepte=None, dekken=True, vlak=None, naadmax=None, stijlen=False):
     if terrein is None:
         print("3D-terrein overgeslagen: terrein.py ontbreekt.")
         return 0
@@ -1234,7 +1242,7 @@ def importeer_terrein_uit_venster(gebied, naadsluiting=True, overslaan="", skirt
         if sla_over:
             print("Typen die worden overgeslagen:", ", ".join(sla_over))
         return terrein.importeer_terrein(sys.modules[__name__], gebied, naadsluiting=naadsluiting,
-                                         sla_over=sla_over, skirt=skirt, diepte=diepte, dekken=dekken, vlak=vlak, naadmax=naadmax)
+                                         sla_over=sla_over, skirt=skirt, diepte=diepte, dekken=dekken, vlak=vlak, naadmax=naadmax, stijlen=stijlen)
     except Exception as fout:
         print("3D-terrein importeren mislukt:", fout)
         return 0
@@ -1275,6 +1283,9 @@ def importeer(aanvraag):
     Een groot gebied wordt in blokken verwerkt; de voortgang staat in JOB zodat de webpagina die kan tonen."""
     x_min, y_min, x_max, y_max = aanvraag["xmin"], aanvraag["ymin"], aanvraag["xmax"], aanvraag["ymax"]
     print(f"PDOK Import versie {VERSIE}")
+    if stijl is not None and (aanvraag.get("stijl2d") or aanvraag.get("stijl3d")):
+        regels_, eigen_, fout_ = stijl.laad()
+        print(f"Stijlen: {'je eigen bestand' if eigen_ else 'de standaardtabel'} met {len(regels_)} regels" + (f" - LET OP: {fout_}" if fout_ else ""))
     if aanvraag.get("bomen"):
         naam = (aanvraag.get("boomobject") or "").strip() or (bomen.STANDAARD_OBJECT if bomen is not None else "")
         bekend = bibliotheek_namen()
@@ -1401,7 +1412,8 @@ def _importeer(aanvraag, deel="alles"):
             (x_min, y_min, x_max, y_max), bool(aanvraag.get("terreinnaad", True)),
             aanvraag.get("terreinoverslaan", ""), aanvraag.get("terreinskirt"), aanvraag.get("terreindiepte"),
             bool(aanvraag.get("terreindekken", True)),
-            ("eigen", 0.0) if aanvraag.get("hoogtemodus") == "nul" else None, aanvraag.get("terreinnaadmax"))
+            ("eigen", 0.0) if aanvraag.get("hoogtemodus") == "nul" else None, aanvraag.get("terreinnaadmax"),
+            bool(aanvraag.get("stijl3d")))
     if GEOREFERENTIE == "rd":
         midden_x = midden_y = 0
     else:
@@ -1475,15 +1487,27 @@ def _importeer(aanvraag, deel="alles"):
 
         laag_index = zorg_voor_laag(archicad_laag)
         kleur = KLEUREN.get(laag) if bron == "bgt" else None
+        gebruik_stijl = bool(aanvraag.get("stijl2d")) and bron == "bgt" and stijl is not None
+        stijl_teller = Counter()
         for vlak in vlakken:
+            eig_ = vlak.pop("_eig", None)                    # de eigenschappen horen niet bij het element dat naar Archicad gaat
+            kleur_v = kleur
+            if gebruik_stijl and eig_ is not None:
+                st_ = stijl.kies(laag, eig_, "2d")
+                if st_:
+                    kleur_v = st_["kleur"]
+                    stijl_teller[st_["naam"]] += 1
             vlak["layerIndex"] = laag_index
             vlak["contourPenIndex"] = pen if pen else CONTOURPEN
-            if kleur:
-                rood, groen, blauw = kleur
+            if kleur_v:
+                rood, groen, blauw = kleur_v
                 vlak["foregroundColor"] = {
                     "red": rood / 255, "green": groen / 255, "blue": blauw / 255,
                 }
                 vlak["fillId"] = vulling
+        if stijl_teller:
+            print(f"   Kleur per soort ({laag}): " + ", ".join(f"{n} {c}" for n, c in stijl_teller.most_common(10)) +
+                  (f"; de overige {len(vlakken) - sum(stijl_teller.values())} vlakken houden de laagkleur" if len(vlakken) > sum(stijl_teller.values()) else ""))
         for lijn in lijnen:
             lijn["layerIndex"] = laag_index
             if pen:
@@ -1616,6 +1640,13 @@ PAGINA = """<!DOCTYPE html>
  <div id="plannaam">Geen plan gekozen.</div>
  <label><input type="checkbox" id="planteksten" checked> Maatvoering (bouwhoogte e.d.) als tekst</label>
  <div id="planinfo"></div>
+ <div class="klein" style="margin:8px 0 2px"><b>Kleuren per soort</b></div>
+ <label class="klein" style="display:block;margin:2px 0"><input type="checkbox" id="stijl_2d" checked> 2D-vullingen kleuren op functie en fysiek voorkomen (BGT)</label>
+ <label class="klein" style="display:block;margin:2px 0"><input type="checkbox" id="stijl_3d" checked> 3D-terrein: een eigen oppervlak per soort</label>
+ <div class="rij" style="margin:2px 0 6px">
+  <button id="stijl_open" class="compact" title="Opent het bestand met de kleuren per soort (wordt aangemaakt als het er nog niet is) in je teksteditor">Stijlbestand openen</button>
+  <button id="stijl_herstel" class="compact" title="Verwijdert je eigen stijlbestand: daarna geldt weer de standaardtabel">Standaardstijlen herstellen</button>
+ </div>
  <button id="importeer">Importeren in Archicad</button>
  <div id="status">Nog geen gebied gekozen.</div>
  <label class="klein" style="display:block;margin:8px 0 2px"><input type="checkbox" id="updatecontrole" checked> Bij het starten controleren op een nieuwe versie (via github.com; er wordt niets van jou verstuurd)</label>
@@ -1722,6 +1753,14 @@ const controleKnop = document.getElementById('drie_controle'), wisKnop = documen
 if (kwaliteitKnop) kwaliteitKnop.onclick = () => terreinActie('/terreinkwaliteit', true);
 const scheidingKnop = document.getElementById('drie_scheidingen_meten');
 if (scheidingKnop) scheidingKnop.onclick = () => terreinActie('/scheidingencontrole', true);
+document.getElementById('stijl_open').onclick = async () => {
+  try { const d = await (await fetch('/stijlenopenen')).json(); status.textContent = d.pad ? 'Stijlbestand geopend: ' + d.pad : 'Het stijlbestand kon niet worden geopend.'; }
+  catch (e) { status.textContent = 'Het stijlbestand kon niet worden geopend.'; }
+};
+document.getElementById('stijl_herstel').onclick = async () => {
+  try { await fetch('/stijlenherstel', {method: 'POST', body: '{}'}); status.textContent = 'De standaardstijlen gelden weer (je eigen stijlbestand is verwijderd).'; }
+  catch (e) { status.textContent = 'Herstellen mislukt.'; }
+};
 const soortenKnop = document.getElementById('drie_soorten');
 if (soortenKnop) soortenKnop.onclick = () => terreinActie('/soortenmeten', true);
 if (controleKnop) controleKnop.onclick = () => terreinActie('/terreincontrole', true);
@@ -1963,6 +2002,7 @@ document.getElementById('importeer').onclick = async () => {
   const terreindiepte = parseFloat(String(document.getElementById('drie_diepte').value).replace(',', '.')) || 1;
   const bomen = document.getElementById('drie_bomen').checked;
   const scheidingen = document.getElementById('drie_scheidingen').checked;
+  const stijl2d = document.getElementById('stijl_2d').checked, stijl3d = document.getElementById('stijl_3d').checked;
   const boomobject = document.getElementById('drie_boomobject').value;
   if (!lagen.length && !plan && !gebouwen && !terrein && !bomen && !scheidingen) {
     status.textContent = 'Vink minstens een laag, 3D-onderdeel of bestemmingsplan aan.';
@@ -1998,7 +2038,7 @@ document.getElementById('importeer').onclick = async () => {
     const r = await fetch('/import', {method: 'POST',
       body: JSON.stringify({...gebied, lagen, alleniveaus, pennen, plan, planteksten, perceelteksten,
                             gebouwen, gebouwenmateriaal, terrein, terreinnaad, terreinoverslaan, terreinskirt, terreindiepte, terreindekken, terreinnaadmax, hoogtemodus,
-                            bomen, boomobject, scheidingen})});
+                            bomen, boomobject, scheidingen, stijl2d, stijl3d})});
     const d = await r.json();
     if (d.fout) { status.textContent = 'Fout: ' + d.fout; return; }
     timerStart();

@@ -130,9 +130,10 @@ def zorg_voor_oppervlakken(k, bijwerken=False, definities=None):
     opdracht EnsureSurface van de add-on."""
     try:
         uit = {}
-        for sleutel, (naam, kleur) in (definities or PROFIEL.get("oppervlakken") or OPPERVLAKKEN).items():
+        for sleutel, definitie in (definities or PROFIEL.get("oppervlakken") or OPPERVLAKKEN).items():
+            naam, kleur = definitie[0], definitie[1]
             invoer = oppervlak_definitie(naam, kleur)
-            invoer["update"] = bool(bijwerken)
+            invoer["update"] = bool(definitie[2]) if len(definitie) > 2 else bool(bijwerken)     # een derde waarde bepaalt het zelf (de stijlen: altijd bijwerken)
             r = k.tapir("EnsureSurface", invoer)
             if not r.get("succeeded") or not guid_uit(k.pak(r).get("attributeId")):
                 print(f"   oppervlak {naam} aanmaken mislukt:", str(r.get("error", r))[:300])

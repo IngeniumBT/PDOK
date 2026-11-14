@@ -118,6 +118,33 @@ TERREIN_OPPERVLAKKEN = {
     "Bridge": ("PDOK_brug", (0.50, 0.50, 0.54)),
     "BridgePart": ("PDOK_brug", (0.50, 0.50, 0.54)),
 }
+try:
+    import stijl                                     # kleur per soort (stijl.py, naast terrein.py)
+except ImportError:
+    stijl = None
+STIJL_VAN_ID = {}                                    # mesh-id -> (naam, (r, g, b)): het oppervlak per soort; alleen met --stijl
+
+
+def registreer_stijl(o, ms, opties):
+    """Legt per mesh van een object vast welke stijl (naam en kleur) het krijgt, op grond van zijn BGT-eigenschappen."""
+    if stijl is None or not opties.get("stijl"):
+        return
+    at = o.get("attributen") or {}
+    st = stijl.kies(stijl.laag_uit_3d(o["type"], at), stijl.eig_uit_3d(at), "3d")
+    if st:
+        for m in ms:
+            STIJL_VAN_ID[m["id"]] = (st["naam"], st["kleur"])
+
+
+def stijloppervlak_guid(k, direct, st):
+    """De guid van het oppervlak van een stijl; wordt bij de eerste keer aangemaakt of bijgewerkt (de kleur komt uit de stijltabel)."""
+    sleutel = "stijl:" + st[0]
+    if sleutel not in direct["guid"]:
+        opp = D.zorg_voor_oppervlakken(k, False, {sleutel: ("PDOK_" + st[0], tuple(c / 255 for c in st[1]), True)})
+        direct["guid"][sleutel] = opp[sleutel]["guid"] if opp else None
+    return direct["guid"].get(sleutel)
+
+
 AFRONDEN = 3
 MIN_RINGOPPERVLAK = 1e-3    # m2, kleinere ringen worden weggelaten
 GAT_TOL = 0.001             # m: een gatpunt binnen deze afstand van de rand of een ander gat "raakt"
@@ -2095,6 +2122,7 @@ def bouw_alle_meshes(objecten, opties):
         for m in ms:
             HOOGTELIGGING[m["id"]] = hl          # apart bewaard: de naadsluiting maakt nieuwe mesh-gegevens
             BRUGSOORT[m["id"]] = soort
+        registreer_stijl(o, ms, opties)
         meshes += [(o["type"], m) for m in ms]
     return meshes, totaal
 
@@ -2205,7 +2233,7 @@ def lees_argumenten(argumenten):
               "sla_over": [], "materialen": "--zonder-materiaal" not in argumenten,
               "bomen": "--bomen" in argumenten, "boomobject": "",
               "skirt": STANDAARD_SKIRT, "diepte": STANDAARD_DIEPTE,
-              "dekken": "--geen-dekken" not in argumenten, "dekdikte": DEK_DIKTE,
+              "stijl": "--stijl" in argumenten, "dekken": "--geen-dekken" not in argumenten, "dekdikte": DEK_DIKTE,
               "controle": "--controle" in argumenten, "ondergrond": "--ondergrond" in argumenten,
               "raster": None, "naad": "gemiddelde", "marge": NAAD_MARGE_STANDAARD, "ankers": "--geen-ankers" not in argumenten,
               "naadmax": NAAD_MAX_VERSCHIL, "naadsluiting": "--geen-naadsluiting" not in argumenten,
@@ -2350,6 +2378,7 @@ def hoofd(argumenten):
         for m in ms:
             HOOGTELIGGING[m["id"]] = hl
             BRUGSOORT[m["id"]] = soort
+        registreer_stijl(o, ms, opties)
         for k, v in st.items():
             totaal[k] += v
         tellers[o["type"]]["objecten"] += 1
@@ -2736,6 +2765,9 @@ def _teken(meshes, opties):
             if opp:
                 direct["guid"] = {typ: v["guid"] for typ, v in opp.items()}
                 direct["aan"] = True
+            if opties.get("stijl") and STIJL_VAN_ID:
+                tel = Counter(v[0] for v in STIJL_VAN_ID.values())
+                print(f"   Kleur per soort: {len(tel)} soorten; " + ", ".join(f"{n} {c} meshes" for n, c in tel.most_common(12)))
         if run is not None:
             run["direct"] = direct
 
@@ -2779,7 +2811,12 @@ def _teken(meshes, opties):
             d["holes"] = bron["holes"]
         if m.get("sublines") and not zonder_punten:
             d["sublines"] = m["sublines"]
-        guid = direct["guid"].get(m.get("_type"))
+        guid = None
+        st_ = STIJL_VAN_ID.get(m.get("id")) if opties.get("stijl") else None
+        if st_ and direct["aan"]:
+            guid = stijloppervlak_guid(kaart, direct, st_)
+        if not guid:
+            guid = direct["guid"].get(m.get("_type"))
         if direct["aan"] and guid:
             d.update(oppervlak_velden(guid))
         elif direct["bm_aan"] and direct["bm"].get(m.get("_type")):
@@ -3591,7 +3628,7 @@ def wis_terrein(k):
     return leegmaken(zonder_vraag=True)
 
 
-def importeer_terrein(k, gebied, oppervlakken=True, naadsluiting=True, sla_over=(), skirt=None, diepte=None, dekken=True, vlak=None, naadmax=None):
+def importeer_terrein(k, gebied, oppervlakken=True, naadsluiting=True, sla_over=(), skirt=None, diepte=None, dekken=True, vlak=None, naadmax=None, stijlen=False):
     """Voor het kaartvenster: haalt het terrein voor het gebied (xmin, ymin, xmax, ymax in RD) op en maakt het
     aan als Meshes. naadsluiting zet de naadsluiting aan of uit; sla_over is een lijst BGT-typen (bgt_type) die
     worden overgeslagen. Maakt ook de terreinoppervlakken aan. k is de kaart-module.
@@ -3618,6 +3655,8 @@ def importeer_terrein(k, gebied, oppervlakken=True, naadsluiting=True, sla_over=
             argumenten += ["--naadmax", repr(float(naadmax))]
     except (TypeError, ValueError):
         pass
+    if stijlen:
+        argumenten.append("--stijl")
     if not dekken:
         argumenten.append("--geen-dekken")
     if skirt in SKIRT_TYPEN:
