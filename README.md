@@ -10,6 +10,9 @@ Eén `.apx`-bestand dat PDOK-gegevens in Archicad importeert. De add-on bevat ee
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.17.2: de meting leesbaarder.** Een samenvatting bovenaan (welk deel van het terreinoppervlak binnen 1, 5 en 20 cm van de bron ligt, gewogen naar oppervlak in plattegrond, zowel in hoogte als loodrecht op het oppervlak). (Bijna) verticale
+  brondriehoeken (vanaf 85 graden: kademuurtjes en taluds) tellen niet meer als gat of afwijking, want een mesh kan dat niet weergeven. Bij overlap staat of de bron zelf al overlapt of dat de import het veroorzaakt.
+  Eerste meting in jouw project: de hoekpunten kloppen op 0,0 mm, de afwijkingen hangen af van de helling en zitten niet aan de rand van objecten.
 - **0.17.1: de meshkwaliteit-meting nauwkeuriger.** De eerste meting (0.17.0) liet steile vlakken (normaal-z onder 0,3, helling boven ongeveer 73 graden) buiten het bovenvlak; bij een talud of kade telde dat als gat en gaf het grote
   schijnbare hoogteverschillen. Nu gaat de grens naar 0,02 (alleen echt verticale zijkanten vallen weg). Nieuw in het rapport: de helling bij elke grote afwijking, de afwijkingen aan de rand van een object (waar de naadsluiting ingrijpt) apart van
   die binnen een object, de afwijkingen per hellingsklasse, en per object met gaten het aantal driehoeken, het oppervlak en de gemiddelde helling (met het volledige ID). Geen C++-wijziging.

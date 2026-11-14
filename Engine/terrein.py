@@ -3138,6 +3138,7 @@ def diagnose_dekking(k, gebied):
 KWALITEIT_CEL = 5.0          # m: rastermaat voor het opzoeken van driehoeken
 KWALITEIT_DREMPELS = (0.01, 0.05, 0.20)      # m: afwijkingen die we tellen
 KWALITEIT_MAX_MONSTERS = 60000                # hoogstens zoveel brondriehoeken worden gemeten (anders een steekproef)
+KWALITEIT_VERTICAAL = 85.0                    # graden: een brondriehoek die steiler is, is (bijna) verticaal; een mesh kan dat niet weergeven
 KWALITEIT_MIN_NORMAAL = 0.02                  # een vlak hoort bij het bovenvlak als zijn normaal minstens zo omhoog wijst (0,02 = alleen echt verticale zijkanten vallen weg)
 
 
@@ -3265,7 +3266,9 @@ def diagnose_kwaliteit(k, gebied):
         return uit
 
     # 1. hoogte en dekking
-    meting = defaultdict(lambda: {"hoek": [], "zwaarte": [], "buiten_ander": 0, "gat": 0, "n": 0})
+    meting = defaultdict(lambda: {"hoek": [], "zwaarte": [], "buiten_ander": 0, "gat": 0, "n": 0, "vert": 0})
+    gewogen = []                                           # (afwijking in hoogte, loodrechte afstand, oppervlak in plattegrond) per zwaartepunt
+    plan_totaal = 0.0
     slechtste = []
     gat_punten = []
     per_object = defaultdict(lambda: {"typ": "", "totaal": 0, "gat": 0, "gat_opp": 0.0, "bron_opp": 0.0, "hel": []})
@@ -3293,6 +3296,11 @@ def diagnose_kwaliteit(k, gebied):
             px, py, z = (t[0] + t[3] + t[6]) / 3, (t[1] + t[4] + t[7]) / 3, (t[2] + t[5] + t[8]) / 3
             hel = _helling(t)
             opp_t = _driehoek_hoek_en_oppervlak(t)[1]
+            plan_opp = abs((t[3] - t[0]) * (t[7] - t[1]) - (t[4] - t[1]) * (t[6] - t[0])) / 2          # oppervlak in plattegrond
+            if hel >= KWALITEIT_VERTICAAL:                  # een (bijna) verticaal vlak heeft geen oppervlak in plattegrond: geen gat en geen afwijking
+                m["vert"] += 1
+                continue
+            plan_totaal += plan_opp
             po["totaal"] += 1
             po["bron_opp"] += opp_t
             alle = zoek(px, py)
@@ -3300,18 +3308,26 @@ def diagnose_kwaliteit(k, gebied):
             if eigen:
                 d = min(eigen, key=lambda zz: abs(zz - z)) - z
                 m["zwaarte"].append(abs(d))
+                gewogen.append((abs(d), abs(d) * math.cos(math.radians(hel)), plan_opp))
                 plek["rand" if b["rand"][n_t] else "binnen"].append(abs(d))
                 per_helling["< 30 graden" if hel < 30 else "30 tot 60" if hel < 60 else "60 tot 80" if hel < 80 else "80 graden of steiler"].append(abs(d))
                 if abs(d) >= KWALITEIT_DREMPELS[1]:
                     slechtste.append((abs(d), d, bid, b["type"], px, py, z, hel))
             elif alle:
                 m["buiten_ander"] += 1
+                gewogen.append((0.0, 0.0, 0.0))
             else:
                 m["gat"] += 1
                 po["gat"] += 1
                 po["gat_opp"] += opp_t
                 po["hel"].append(hel)
                 gat_punten.append((px, py, bid, b["type"], math.sqrt(max(0.0, opp_t))))
+    gew_opp = plan_totaal or 1.0                           # het hele bronoppervlak: plekken zonder eigen oppervlak tellen dus als niet binnen de drempel
+    print(f"\nSamenvatting: van het terreinoppervlak (in plattegrond, {plan_totaal:.0f} m2, zonder verticale vlakken) ligt het Archicad-oppervlak binnen")
+    for drempel in KWALITEIT_DREMPELS:
+        hoog = sum(g[2] for g in gewogen if g[0] <= drempel) / gew_opp * 100
+        lood = sum(g[2] for g in gewogen if g[1] <= drempel) / gew_opp * 100
+        print(f"   {int(drempel * 100)} cm van de bron: {hoog:.1f}% gemeten in hoogte, {lood:.1f}% gemeten loodrecht op het oppervlak")
     print("\nHoogte: het verschil tussen het oppervlak in Archicad en de brondriehoeken (millimeters; gemeten op de hoekpunten en in de zwaartepunten):")
     tot = {"hoek": [], "zwaarte": []}
     for typ in sorted(meting):
@@ -3346,8 +3362,11 @@ def diagnose_kwaliteit(k, gebied):
     # 2. dekking
     n_buiten = sum(m["buiten_ander"] for m in meting.values())
     n_gat = sum(m["gat"] for m in meting.values())
-    n_tot = sum(m["n"] for m in meting.values())
-    print(f"\nDekking: van {n_tot} brondriehoeken ligt het zwaartepunt bij {n_tot - n_buiten - n_gat} op het oppervlak van het eigen object, bij {n_buiten} (door een ander object gedekt: de omtrek wijkt iets af)")
+    n_tot = sum(m["n"] for m in meting.values()) - sum(m["vert"] for m in meting.values())
+    n_vert = sum(m["vert"] for m in meting.values())
+    if n_vert:
+        print(f"\nVerticale vlakken: {n_vert} driehoeken in de bron zijn (bijna) verticaal (kademuurtjes en taluds). Een mesh is een oppervlak boven het grondvlak en kan dat niet weergeven; ze tellen dus niet als gat.")
+    print(f"\nDekking (zonder die verticale vlakken): van {n_tot} brondriehoeken ligt het zwaartepunt bij {n_tot - n_buiten - n_gat} op het oppervlak van het eigen object, bij {n_buiten} (door een ander object gedekt: de omtrek wijkt iets af)")
     print(f"   en bij {n_gat} op geen enkel oppervlak (een gat in het terrein)." if n_gat else "   en bij geen enkele op een plek zonder oppervlak: er zijn geen gaten.")
     if gat_punten:
         oppervlak = sum(g[4] ** 2 for g in gat_punten)
@@ -3355,7 +3374,18 @@ def diagnose_kwaliteit(k, gebied):
         for bid, po in sorted(((b_, p_) for b_, p_ in per_object.items() if p_["gat"]), key=lambda x: -x[1]["gat_opp"])[:8]:
             print(f"      {po['typ']} {bid}: {po['gat']} van {po['totaal']} driehoeken zonder oppervlak ({po['gat_opp']:.0f} van {po['bron_opp']:.0f} m2), gemiddelde helling daarvan {sum(po['hel']) / len(po['hel']):.0f} graden")
     # 3. overlap: staat er meer dan een mesh op dezelfde plek?
-    dubbel, gestapeld, tot_n = 0, 0, 0
+    bron_raster = defaultdict(list)                        # de brondriehoeken per cel, om te zien of de bron zelf al overlapt
+    for bid_, b_ in bron.items():
+        for t_ in b_["tri"]:
+            for cx_ in range(int(min(t_[0], t_[3], t_[6]) // KWALITEIT_CEL), int(max(t_[0], t_[3], t_[6]) // KWALITEIT_CEL) + 1):
+                for cy_ in range(int(min(t_[1], t_[4], t_[7]) // KWALITEIT_CEL), int(max(t_[1], t_[4], t_[7]) // KWALITEIT_CEL) + 1):
+                    bron_raster[(cx_, cy_)].append((bid_, t_))
+
+    def bron_overlapt(px, py, a, b):
+        eigenaars_hier = {bid_ for bid_, t_ in bron_raster.get((int(px // KWALITEIT_CEL), int(py // KWALITEIT_CEL)), ()) if _driehoek_z(px, py, t_) is not None}
+        return a in eigenaars_hier and b in eigenaars_hier
+
+    dubbel, gestapeld, tot_n, dubbel_bron = 0, 0, 0, 0
     voorbeelden = []
     stap_ac = max(1, len(tri_ac) // KWALITEIT_MAX_MONSTERS)
     for n in range(0, len(tri_ac), stap_ac):
@@ -3367,14 +3397,18 @@ def diagnose_kwaliteit(k, gebied):
                 continue
             if abs(zz - z) < KWALITEIT_DREMPELS[1]:
                 dubbel += 1
+                uit_bron = bron_overlapt(px, py, eigenaars[n], eig)
+                dubbel_bron += 1 if uit_bron else 0
                 if len(voorbeelden) < 5:
-                    voorbeelden.append((px, py, eigenaars[n], eig, zz - z))
+                    voorbeelden.append((px, py, eigenaars[n], eig, zz - z, uit_bron))
                 break
             gestapeld += 1
             break
     print(f"\nOverlap: van {tot_n} driehoeken in Archicad liggen er {dubbel} (vrijwel) op dezelfde hoogte als een andere mesh (dubbel oppervlak, kan flikkeren) en {gestapeld} boven of onder een andere mesh (gestapeld, bijvoorbeeld een brugdek).")
-    for px, py, a, b, dz in voorbeelden:
-        print(f"      bij ({px:.1f}, {py:.1f}): {a[:12]} en {b[:12]} ({dz * 1000:+.0f} mm)")
+    if dubbel:
+        print(f"   daarvan overlappen die objecten ook al in de bron: {dubbel_bron} van {dubbel}; de overige {dubbel - dubbel_bron} ontstaan bij het importeren.")
+    for px, py, a, b, dz, uit_bron in voorbeelden:
+        print(f"      bij ({px:.1f}, {py:.1f}): {a} en {b} ({dz * 1000:+.0f} mm){' - ook in de bron' if uit_bron else ' - alleen in Archicad'}")
     # 4. de driehoeken die Archicad maakt
     scherp = sum(1 for t in tri_ac if _driehoek_hoek_en_oppervlak(t)[0] < 5.0)
     zeer_scherp = sum(1 for t in tri_ac if _driehoek_hoek_en_oppervlak(t)[0] < 1.0)
