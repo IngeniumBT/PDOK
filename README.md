@@ -13,6 +13,10 @@ Wat nog openstaat en wat we hebben gemeten staat in **OPENSTAAND.md**.
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.19.0: oppervlakken in een map en 2D-lagen per soort.** C++: `EnsureSurface` heeft een optionele `folder` (de map in de oppervlakken, aangemaakt als hij er niet is; ook bestaande oppervlakken worden erin gezet, via de hulpfunctie `PlaceAttributeInFolder`).
+  Alle `PDOK_`-oppervlakken krijgen die map (*PDOK Import*) mee. 2D: met het keuzevakje *2D-vlakken over lagen per soort verdelen* komen BGT-vlakken op `BGT_<laag>_<deellaag>` (bijvoorbeeld `BGT_wegdeel_fietspad`); de deellaag komt uit de stijlregel (sleutel `deellaag`,
+  28 standaardregels hebben er een: rijbaan, parkeren, fietspad, voetpad, trap, inrit, voetgangersgebied, gras, heesters, bosplantsoen, planten, bos, heide, akker, erf, verhard, halfverhard, zand, berm, verkeerseiland). Zonder regel of deellaag blijft een vlak op de basislaag.
+  Het pennummer per BGT-laag geldt voor al zijn deellagen. Het log toont *Lagen per soort (...)*.
 - **0.18.1: gebouwkleuren.** 2D: de gebouwlagen (`pand`, `gebouwinstallatie`, `overigbouwwerk`) zijn lichtgrijs (lichter dan alle wegdelen), zowel als laagkleur (`KLEUREN`) als als regel in de stijltabel (`alleen: 2d`). 3D: platte daken (vlak dat minder dan `PLAT_DAK_HOEK` = 10 graden van
   horizontaal afwijkt) krijgen het oppervlak `PDOK_dak_plat` (grijs); hellende daken houden `PDOK_dak`. De kleuren van de vier gebouwoppervlakken (dak, dak_plat, muur, grondvlak) staan met *Kleuren per soort* aan in de stijltabel (laag `gebouw`, `type` = het vlaktype) en worden dan bij elke import
   bijgewerkt. `weg_klinker` en `weg_voetpad_klinker` zijn minder verzadigd rood. Geen C++-wijziging.

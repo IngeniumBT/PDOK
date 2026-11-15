@@ -141,7 +141,8 @@ def oppervlak_definitie(naam, kleur):
             "transparency": 0, "shine": 0, "transparencyAttenuation": 0, "emissionAttenuation": 0,
             "surfaceColor": {"red": kleur[0], "green": kleur[1], "blue": kleur[2]},
             "specularColor": {"red": 0.9, "green": 0.9, "blue": 0.9},
-            "emissionColor": {"red": 0, "green": 0, "blue": 0}}
+            "emissionColor": {"red": 0, "green": 0, "blue": 0},
+            "folder": [MAP]}                                    # alle PDOK-oppervlakken komen in de map PDOK Import (zoals de lagen)
 
 
 def guid_uit(item):

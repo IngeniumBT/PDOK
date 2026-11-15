@@ -1283,7 +1283,7 @@ def importeer(aanvraag):
     Een groot gebied wordt in blokken verwerkt; de voortgang staat in JOB zodat de webpagina die kan tonen."""
     x_min, y_min, x_max, y_max = aanvraag["xmin"], aanvraag["ymin"], aanvraag["xmax"], aanvraag["ymax"]
     print(f"PDOK Import versie {VERSIE}")
-    if stijl is not None and (aanvraag.get("stijl2d") or aanvraag.get("stijl3d")):
+    if stijl is not None and (aanvraag.get("stijl2d") or aanvraag.get("stijl3d") or aanvraag.get("verfijnd2d")):
         regels_, eigen_, fout_ = stijl.laad()
         print(f"Stijlen: {'je eigen bestand' if eigen_ else 'de standaardtabel'} met {len(regels_)} regels" + (f" - LET OP: {fout_}" if fout_ else ""))
     if aanvraag.get("bomen"):
@@ -1489,16 +1489,26 @@ def _importeer(aanvraag, deel="alles"):
         laag_index = zorg_voor_laag(archicad_laag)
         kleur = KLEUREN.get(laag) if bron == "bgt" else None
         gebruik_stijl = bool(aanvraag.get("stijl2d")) and bron == "bgt" and stijl is not None
+        verfijnd = bool(aanvraag.get("verfijnd2d")) and bron == "bgt" and stijl is not None     # de vlakken over lagen per soort verdelen
         stijl_teller = Counter()
+        deellagen = {}                                       # deellaag -> (Archicad-laagnaam, laagnummer)
+        deel_teller = Counter()
         for vlak in vlakken:
             eig_ = vlak.pop("_eig", None)                    # de eigenschappen horen niet bij het element dat naar Archicad gaat
             kleur_v = kleur
-            if gebruik_stijl and eig_ is not None:
+            laag_v = laag_index
+            if (gebruik_stijl or verfijnd) and eig_ is not None:
                 st_ = stijl.kies(laag, eig_, "2d")
-                if st_:
+                if st_ and gebruik_stijl:
                     kleur_v = st_["kleur"]
                     stijl_teller[st_["naam"]] += 1
-            vlak["layerIndex"] = laag_index
+                if st_ and verfijnd and st_.get("deellaag"):
+                    if st_["deellaag"] not in deellagen:
+                        naam_dl = f"{archicad_laag}_{st_['deellaag']}"
+                        deellagen[st_["deellaag"]] = (naam_dl, zorg_voor_laag(naam_dl))
+                    laag_v = deellagen[st_["deellaag"]][1]
+                    deel_teller[deellagen[st_["deellaag"]][0]] += 1
+            vlak["layerIndex"] = laag_v
             vlak["contourPenIndex"] = pen if pen else CONTOURPEN
             if kleur_v:
                 rood, groen, blauw = kleur_v
@@ -1509,6 +1519,9 @@ def _importeer(aanvraag, deel="alles"):
         if stijl_teller:
             print(f"   Kleur per soort ({laag}): " + ", ".join(f"{n} {c}" for n, c in stijl_teller.most_common(10)) +
                   (f"; de overige {len(vlakken) - sum(stijl_teller.values())} vlakken houden de laagkleur" if len(vlakken) > sum(stijl_teller.values()) else ""))
+        if deel_teller:
+            print(f"   Lagen per soort ({laag}): " + ", ".join(f"{n} {c}" for n, c in deel_teller.most_common(12)) +
+                  (f"; de overige {len(vlakken) - sum(deel_teller.values())} vlakken staan op {archicad_laag}" if len(vlakken) > sum(deel_teller.values()) else ""))
         for lijn in lijnen:
             lijn["layerIndex"] = laag_index
             if pen:
@@ -1643,7 +1656,8 @@ PAGINA = """<!DOCTYPE html>
  <div id="planinfo"></div>
  <div class="klein" style="margin:8px 0 2px"><b>Kleuren per soort</b></div>
  <label class="klein" style="display:block;margin:2px 0"><input type="checkbox" id="stijl_2d" checked> 2D-vullingen kleuren op functie en fysiek voorkomen (BGT)</label>
- <label class="klein" style="display:block;margin:2px 0"><input type="checkbox" id="stijl_3d" checked> 3D-terrein: een eigen oppervlak per soort</label>
+ <label class="klein" style="display:block;margin:2px 0"><input type="checkbox" id="stijl_verfijnd" checked> 2D-vlakken over lagen per soort verdelen (bijvoorbeeld BGT_wegdeel_fietspad)</label>
+ <label class="klein" style="display:block;margin:2px 0"><input type="checkbox" id="stijl_3d" checked> 3D-terrein en gebouwen: een eigen oppervlak per soort</label>
  <div class="rij" style="margin:2px 0 6px">
   <button id="stijl_open" class="compact" title="Opent het bestand met de kleuren per soort (wordt aangemaakt als het er nog niet is) in je teksteditor">Stijlbestand openen</button>
   <button id="stijl_herstel" class="compact" title="Verwijdert je eigen stijlbestand: daarna geldt weer de standaardtabel">Standaardstijlen herstellen</button>
@@ -2003,7 +2017,7 @@ document.getElementById('importeer').onclick = async () => {
   const terreindiepte = parseFloat(String(document.getElementById('drie_diepte').value).replace(',', '.')) || 1;
   const bomen = document.getElementById('drie_bomen').checked;
   const scheidingen = document.getElementById('drie_scheidingen').checked;
-  const stijl2d = document.getElementById('stijl_2d').checked, stijl3d = document.getElementById('stijl_3d').checked;
+  const stijl2d = document.getElementById('stijl_2d').checked, stijl3d = document.getElementById('stijl_3d').checked, verfijnd2d = document.getElementById('stijl_verfijnd').checked;
   const boomobject = document.getElementById('drie_boomobject').value;
   if (!lagen.length && !plan && !gebouwen && !terrein && !bomen && !scheidingen) {
     status.textContent = 'Vink minstens een laag, 3D-onderdeel of bestemmingsplan aan.';
@@ -2039,7 +2053,7 @@ document.getElementById('importeer').onclick = async () => {
     const r = await fetch('/import', {method: 'POST',
       body: JSON.stringify({...gebied, lagen, alleniveaus, pennen, plan, planteksten, perceelteksten,
                             gebouwen, gebouwenmateriaal, terrein, terreinnaad, terreinoverslaan, terreinskirt, terreindiepte, terreindekken, terreinnaadmax, hoogtemodus,
-                            bomen, boomobject, scheidingen, stijl2d, stijl3d})});
+                            bomen, boomobject, scheidingen, stijl2d, stijl3d, verfijnd2d})});
     const d = await r.json();
     if (d.fout) { status.textContent = 'Fout: ' + d.fout; return; }
     timerStart();

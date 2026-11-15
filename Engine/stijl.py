@@ -11,6 +11,8 @@ Er is een tabel met regels. Een regel heeft een naam, een kleur en voorwaarden:
   plus      komt voor in het plus-fysiek voorkomen (asfalt, tegels, heesters, ...)
   type      komt voor in het BGT-type of plus-type (muur, hek, ...)
   alleen    "2d" of "3d": de regel geldt alleen daar (weglaten = beide)
+  deellaag  de 2D-vlakken van deze soort komen op een eigen laag: BGT_<laag>_<deellaag> (bijvoorbeeld BGT_wegdeel_fietspad); zonder deellaag blijven ze op de
+            laag van de BGT-laag zelf
   prioriteit  een geheel getal (standaard 0): een regel met een hogere prioriteit wint van een met een lagere, ook als die meer voorwaarden heeft
 
 Een voorwaarde die ontbreekt, past bij alles. Past meer dan een regel, dan wint die met de hoogste prioriteit, en daarna de meest specifieke (de meeste voorwaarden,
@@ -27,39 +29,39 @@ BESTANDSNAAM = "stijlen.json"
 # De standaardtabel. De kleuren zijn rood, groen, blauw van 0 tot 255.
 STANDAARD_REGELS = [
     # ---- wegen (wegdeel): functie, daarna het materiaal (plus-fysiek voorkomen)
-    {"naam": "weg_asfalt", "kleur": [88, 88, 94], "laag": "wegdeel", "functie": "rijbaan", "plus": "asfalt"},
-    {"naam": "weg_beton", "kleur": [172, 172, 168], "laag": "wegdeel", "functie": "rijbaan", "plus": "beton"},
-    {"naam": "weg_straatsteen", "kleur": [146, 138, 134], "laag": "wegdeel", "functie": "rijbaan", "plus": "straatsten"},
-    {"naam": "weg_klinker", "kleur": [166, 124, 110], "laag": "wegdeel", "functie": "rijbaan", "plus": "klinker"},
-    {"naam": "weg_rijbaan", "kleur": [104, 104, 110], "laag": "wegdeel", "functie": "rijbaan"},
-    {"naam": "weg_parkeren", "kleur": [130, 130, 140], "laag": "wegdeel", "functie": "parkeervlak"},
-    {"naam": "weg_fietspad", "kleur": [196, 104, 92], "laag": "wegdeel", "functie": "fietspad"},
-    {"naam": "weg_trap", "kleur": [165, 165, 165], "laag": "wegdeel", "functie": "voetpad op trap", "prioriteit": 1},
-    {"naam": "weg_voetpad_klinker", "kleur": [178, 128, 112], "laag": "wegdeel", "functie": "voetpad", "plus": "klinker"},
-    {"naam": "weg_voetpad_tegels", "kleur": [208, 202, 190], "laag": "wegdeel", "functie": "voetpad", "plus": "tegel"},
-    {"naam": "weg_voetpad_straatsteen", "kleur": [186, 176, 166], "laag": "wegdeel", "functie": "voetpad", "plus": "straatsten"},
-    {"naam": "weg_voetpad", "kleur": [196, 190, 180], "laag": "wegdeel", "functie": "voetpad"},
-    {"naam": "weg_voetgangersgebied", "kleur": [214, 206, 192], "laag": "wegdeel", "functie": "voetgangersgebied"},
-    {"naam": "weg_inrit", "kleur": [158, 150, 142], "laag": "wegdeel", "functie": "inrit"},
+    {"naam": "weg_asfalt", "kleur": [88, 88, 94], "laag": "wegdeel", "functie": "rijbaan", "plus": "asfalt", "deellaag": "rijbaan"},
+    {"naam": "weg_beton", "kleur": [172, 172, 168], "laag": "wegdeel", "functie": "rijbaan", "plus": "beton", "deellaag": "rijbaan"},
+    {"naam": "weg_straatsteen", "kleur": [146, 138, 134], "laag": "wegdeel", "functie": "rijbaan", "plus": "straatsten", "deellaag": "rijbaan"},
+    {"naam": "weg_klinker", "kleur": [166, 124, 110], "laag": "wegdeel", "functie": "rijbaan", "plus": "klinker", "deellaag": "rijbaan"},
+    {"naam": "weg_rijbaan", "kleur": [104, 104, 110], "laag": "wegdeel", "functie": "rijbaan", "deellaag": "rijbaan"},
+    {"naam": "weg_parkeren", "kleur": [130, 130, 140], "laag": "wegdeel", "functie": "parkeervlak", "deellaag": "parkeren"},
+    {"naam": "weg_fietspad", "kleur": [196, 104, 92], "laag": "wegdeel", "functie": "fietspad", "deellaag": "fietspad"},
+    {"naam": "weg_trap", "kleur": [165, 165, 165], "laag": "wegdeel", "functie": "voetpad op trap", "prioriteit": 1, "deellaag": "trap"},
+    {"naam": "weg_voetpad_klinker", "kleur": [178, 128, 112], "laag": "wegdeel", "functie": "voetpad", "plus": "klinker", "deellaag": "voetpad"},
+    {"naam": "weg_voetpad_tegels", "kleur": [208, 202, 190], "laag": "wegdeel", "functie": "voetpad", "plus": "tegel", "deellaag": "voetpad"},
+    {"naam": "weg_voetpad_straatsteen", "kleur": [186, 176, 166], "laag": "wegdeel", "functie": "voetpad", "plus": "straatsten", "deellaag": "voetpad"},
+    {"naam": "weg_voetpad", "kleur": [196, 190, 180], "laag": "wegdeel", "functie": "voetpad", "deellaag": "voetpad"},
+    {"naam": "weg_voetgangersgebied", "kleur": [214, 206, 192], "laag": "wegdeel", "functie": "voetgangersgebied", "deellaag": "voetgangersgebied"},
+    {"naam": "weg_inrit", "kleur": [158, 150, 142], "laag": "wegdeel", "functie": "inrit", "deellaag": "inrit"},
     {"naam": "weg_gesloten", "kleur": [110, 110, 116], "laag": "wegdeel", "fysiek": "gesloten verharding", "prioriteit": -1},
     {"naam": "weg_open", "kleur": [160, 152, 146], "laag": "wegdeel", "fysiek": "open verharding", "prioriteit": -1},
     # ---- groen (begroeidterreindeel): het onderscheid zit in het plus-fysiek voorkomen
-    {"naam": "groen_gras", "kleur": [152, 204, 112], "laag": "begroeidterreindeel", "plus": "gras"},
-    {"naam": "groen_heesters", "kleur": [92, 152, 88], "laag": "begroeidterreindeel", "plus": "heester"},
-    {"naam": "groen_bosplantsoen", "kleur": [62, 118, 68], "laag": "begroeidterreindeel", "plus": "bosplantsoen"},
-    {"naam": "groen_planten", "kleur": [188, 206, 128], "laag": "begroeidterreindeel", "plus": "planten"},
-    {"naam": "groen_bos", "kleur": [48, 104, 58], "laag": "begroeidterreindeel", "plus": "bos"},
-    {"naam": "groen_heide", "kleur": [166, 128, 150], "laag": "begroeidterreindeel", "plus": "heide"},
-    {"naam": "groen_akker", "kleur": [206, 196, 120], "laag": "begroeidterreindeel", "plus": "akker"},
+    {"naam": "groen_gras", "kleur": [152, 204, 112], "laag": "begroeidterreindeel", "plus": "gras", "deellaag": "gras"},
+    {"naam": "groen_heesters", "kleur": [92, 152, 88], "laag": "begroeidterreindeel", "plus": "heester", "deellaag": "heesters"},
+    {"naam": "groen_bosplantsoen", "kleur": [62, 118, 68], "laag": "begroeidterreindeel", "plus": "bosplantsoen", "deellaag": "bosplantsoen"},
+    {"naam": "groen_planten", "kleur": [188, 206, 128], "laag": "begroeidterreindeel", "plus": "planten", "deellaag": "planten"},
+    {"naam": "groen_bos", "kleur": [48, 104, 58], "laag": "begroeidterreindeel", "plus": "bos", "deellaag": "bos"},
+    {"naam": "groen_heide", "kleur": [166, 128, 150], "laag": "begroeidterreindeel", "plus": "heide", "deellaag": "heide"},
+    {"naam": "groen_akker", "kleur": [206, 196, 120], "laag": "begroeidterreindeel", "plus": "akker", "deellaag": "akker"},
     # ---- onbegroeid terrein
-    {"naam": "terrein_erf", "kleur": [224, 210, 176], "laag": "onbegroeidterreindeel", "fysiek": "erf"},
-    {"naam": "terrein_gesloten", "kleur": [150, 150, 156], "laag": "onbegroeidterreindeel", "fysiek": "gesloten verharding"},
-    {"naam": "terrein_open", "kleur": [170, 160, 150], "laag": "onbegroeidterreindeel", "fysiek": "open verharding"},
-    {"naam": "terrein_halfverhard", "kleur": [200, 185, 150], "laag": "onbegroeidterreindeel", "fysiek": "half verhard"},
-    {"naam": "terrein_zand", "kleur": [232, 220, 170], "laag": "onbegroeidterreindeel", "fysiek": "zand"},
+    {"naam": "terrein_erf", "kleur": [224, 210, 176], "laag": "onbegroeidterreindeel", "fysiek": "erf", "deellaag": "erf"},
+    {"naam": "terrein_gesloten", "kleur": [150, 150, 156], "laag": "onbegroeidterreindeel", "fysiek": "gesloten verharding", "deellaag": "verhard"},
+    {"naam": "terrein_open", "kleur": [170, 160, 150], "laag": "onbegroeidterreindeel", "fysiek": "open verharding", "deellaag": "verhard"},
+    {"naam": "terrein_halfverhard", "kleur": [200, 185, 150], "laag": "onbegroeidterreindeel", "fysiek": "half verhard", "deellaag": "halfverhard"},
+    {"naam": "terrein_zand", "kleur": [232, 220, 170], "laag": "onbegroeidterreindeel", "fysiek": "zand", "deellaag": "zand"},
     # ---- ondersteunend wegdeel (bermen e.d.)
-    {"naam": "berm", "kleur": [170, 185, 135], "laag": "ondersteunendwegdeel", "functie": "berm"},
-    {"naam": "verkeerseiland", "kleur": [200, 190, 140], "laag": "ondersteunendwegdeel", "functie": "verkeerseiland"},
+    {"naam": "berm", "kleur": [170, 185, 135], "laag": "ondersteunendwegdeel", "functie": "berm", "deellaag": "berm"},
+    {"naam": "verkeerseiland", "kleur": [200, 190, 140], "laag": "ondersteunendwegdeel", "functie": "verkeerseiland", "deellaag": "verkeerseiland"},
     # ---- de grond onder een gebouw (alleen in 3D)
     {"naam": "pand_grond", "kleur": [185, 178, 172], "laag": "pand", "alleen": "3d"},
     # ---- gebouwen in 2D: lichtgrijs, lichter dan de wegdelen
@@ -114,6 +116,9 @@ def _schoon(regel):
         uit["laag"] = norm_laag(regel["laag"])
     if str(regel.get("alleen") or "").lower() in ("2d", "3d"):
         uit["alleen"] = str(regel["alleen"]).lower()
+    deel = re.sub(r"[^a-z0-9_]+", "_", str(regel.get("deellaag") or "").strip().lower()).strip("_")
+    if deel:
+        uit["deellaag"] = deel
     try:
         uit["prioriteit"] = int(regel.get("prioriteit") or 0)
     except (TypeError, ValueError):

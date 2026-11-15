@@ -1331,6 +1331,30 @@ short FloorIndexOfZ (double z)
     return result;
 }
 
+// Zet een kenmerk (laag, oppervlak, ...) in een map van de kenmerken; de map wordt zo nodig aangemaakt. Een kenmerk dat er al staat, blijft daar.
+static void PlaceAttributeInFolder (API_AttrTypeID typeID, const GS::Array<GS::UniString>& folderPath, const API_Guid& attributeGuid)
+{
+    if (folderPath.IsEmpty ()) {
+        return;
+    }
+    API_AttributeFolder folder;
+    folder.typeID = typeID;
+    folder.path = folderPath;
+    folder.guid = GS::Guid ();
+    ACAPI_Attribute_CreateFolder (folder);               // maakt ontbrekende mappen aan, laat bestaande staan
+
+    API_AttributeFolder target;
+    target.typeID = typeID;
+    target.path = folderPath;
+    target.guid = GS::Guid ();
+    if (ACAPI_Attribute_GetFolder (target) == NoError && !target.guid.IsNull ()) {
+        GS::Array<API_AttributeFolder> noFolders;         // de eerste parameter zijn de te verplaatsen mappen
+        GS::Array<GS::Guid> toMove;
+        toMove.Push (APIGuid2GSGuid (attributeGuid));
+        ACAPI_Attribute_Move (noFolders, toMove, target);
+    }
+}
+
 // ---- EnsureSurface {name, update?, materialType?, ambientReflection?, diffuseReflection?, specularReflection?, transparency?,
 //      shine?, transparencyAttenuation?, emissionAttenuation?, surfaceColor?, specularColor?, emissionColor?}
 //      -> {attributeId, created, updated}
@@ -1348,6 +1372,8 @@ public:
         }
         bool update = false;
         parameters.Get ("update", update);
+        GS::Array<GS::UniString> folderPath;                  // optioneel: de map voor het oppervlak (ook voor een bestaand oppervlak)
+        parameters.Get ("folder", folderPath);
 
         GS::UniString lookupName = name;
         API_Attribute attribute = {};
@@ -1357,6 +1383,7 @@ public:
         const bool emptyValues = exists && attribute.material.diffusePc == 0 && attribute.material.ambientPc == 0;
 
         if (exists && !update && !emptyValues) {
+            PlaceAttributeInFolder (API_MaterialID, folderPath, attribute.header.guid);
             GS::ObjectState existing;
             existing.Add ("attributeId", GuidObject (attribute.header.guid));
             existing.Add ("created", false);
@@ -1377,6 +1404,7 @@ public:
             if (err != NoError) {
                 return ErrorResponse (err, GS::UniString ("Het oppervlak '") + name + "' kon niet worden aangemaakt.");
             }
+            PlaceAttributeInFolder (API_MaterialID, folderPath, attribute.header.guid);
             GS::ObjectState created;
             created.Add ("attributeId", GuidObject (attribute.header.guid));
             created.Add ("created", true);
@@ -1391,6 +1419,7 @@ public:
         if (err != NoError) {
             return ErrorResponse (err, GS::UniString ("Het oppervlak '") + name + "' kon niet worden bijgewerkt.");
         }
+        PlaceAttributeInFolder (API_MaterialID, folderPath, attribute.header.guid);
         GS::ObjectState updated;
         updated.Add ("attributeId", GuidObject (attribute.header.guid));
         updated.Add ("created", false);
