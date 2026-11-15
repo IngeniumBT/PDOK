@@ -6,8 +6,8 @@ De hoogte is hier dus een AANNAME per soort. Die staat als regel in de stijltabe
 maaiveld. Soorten zonder zo'n regel worden overgeslagen en in het log genoemd.
 
 Het maaiveld komt uit de 3D Basisvoorziening van PDOK, net als bij de bomen (er hoeven geen terreinmeshes in Archicad te staan). De morphs komen op de
-laag 3D_bouwdelen in de map PDOK Import, met het oppervlak PDOK_<naam van de regel> en het Element-ID BWD-<BGT-id> (nogmaals importeren slaat bestaande
-over).
+laag 3D_bouwdelen in de map PDOK Import, met het Element-ID BWD-<BGT-id> (nogmaals importeren slaat bestaande over). Ze krijgen dezelfde oppervlakken als de
+gebouwen: de bovenkant PDOK_dak_plat, de zijkanten PDOK_muur en de onderkant PDOK_grondvlak (de kleur van de stijlregel telt hier dus niet).
 
 Dezelfde functie (plaats_bouwdelen) wordt gebruikt door het kaartvenster (kaart.py).
 """
@@ -103,10 +103,11 @@ def vlakken_uit_pdok(k, gebied, regels):
     return uit, zonder, soorten, tel
 
 
-def lichaam(buiten, gaten, z_onder, z_boven, oppervlak=None, kappen_als_driehoeken=False):
+def lichaam(buiten, gaten, z_onder, z_boven, oppervlakken=None, kappen_als_driehoeken=False):
     """Trekt een omtrek (met gaten) uit tussen twee hoogtes. Geeft (basePoint, body) met de hoekpunten ten opzichte van het basispunt.
 
-    De buitenrand loopt tegen de klok in en de gaten met de klok mee; dan wijzen alle vlakken naar buiten."""
+    De buitenrand loopt tegen de klok in en de gaten met de klok mee; dan wijzen alle vlakken naar buiten.
+    oppervlakken: {"boven": .., "zijkant": .., "onder": ..} (elk {"guid": ..} of None)."""
     bx, by, bz = min(p[0] for p in buiten), min(p[1] for p in buiten), z_onder
     verts = []
 
@@ -117,6 +118,12 @@ def lichaam(buiten, gaten, z_onder, z_boven, oppervlak=None, kappen_als_driehoek
     onder = [[punt(x, y, z_onder) for x, y in r] for r in ringen]
     boven = [[punt(x, y, z_boven) for x, y in r] for r in ringen]
     polys = []
+    opp = oppervlakken or {}
+
+    def met(pg, soort):
+        if opp.get(soort):
+            pg["surfaceId"] = opp[soort]
+        return pg
     if kappen_als_driehoeken:
         wereld = {i: (v["x"], v["y"], v["z"]) for i, v in enumerate(verts)}
         for ring_ids, omkeren in ((boven, False), (onder, True)):
@@ -124,17 +131,14 @@ def lichaam(buiten, gaten, z_onder, z_boven, oppervlak=None, kappen_als_driehoek
             if tri is None:
                 return None
             for a, b, c in tri:
-                polys.append({"vertexIds": [c, b, a] if omkeren else [a, b, c]})
+                polys.append(met({"vertexIds": [c, b, a] if omkeren else [a, b, c]}, "onder" if omkeren else "boven"))
     else:
-        polys.append({"vertexIds": list(boven[0]), "holes": [{"vertexIds": list(r)} for r in boven[1:]]})
-        polys.append({"vertexIds": list(reversed(onder[0])), "holes": [{"vertexIds": list(reversed(r))} for r in onder[1:]]})
+        polys.append(met({"vertexIds": list(boven[0]), "holes": [{"vertexIds": list(r)} for r in boven[1:]]}, "boven"))
+        polys.append(met({"vertexIds": list(reversed(onder[0])), "holes": [{"vertexIds": list(reversed(r))} for r in onder[1:]]}, "onder"))
     for o, b in zip(onder, boven):                          # de zijkanten
         n = len(o)
         for i in range(n):
-            polys.append({"vertexIds": [o[i], o[(i + 1) % n], b[(i + 1) % n], b[i]]})
-    if oppervlak:
-        for pg in polys:
-            pg["surfaceId"] = oppervlak
+            polys.append(met({"vertexIds": [o[i], o[(i + 1) % n], b[(i + 1) % n], b[i]]}, "zijkant"))
     return {"x": round(bx, 3), "y": round(by, 3), "z": round(bz, 3)}, {"vertices": verts, "polygons": polys}
 
 
@@ -156,7 +160,7 @@ def maak_alle(k, items, voortgang=None, stop=None):
         r = k.tapir("CreateMorphs", {"morphsData": [payload]})
         e = (k.pak(r).get("elements", [None]) or [None])[0] if r.get("succeeded") else None
         if not (e and "elementId" in e):
-            alt = lichaam(it["buiten"], it["gaten"], it["z_onder"], it["z_boven"], it["oppervlak"], kappen_als_driehoeken=True)
+            alt = lichaam(it["buiten"], it["gaten"], it["z_onder"], it["z_boven"], it["oppervlakken"], kappen_als_driehoeken=True)
             if alt:                                          # de boven- en onderkant als driehoeken
                 r = k.tapir("CreateMorphs", {"morphsData": [dict(payload, basePoint=alt[0], body=alt[1])]})
                 e = (k.pak(r).get("elements", [None]) or [None])[0] if r.get("succeeded") else None
@@ -173,8 +177,9 @@ def maak_alle(k, items, voortgang=None, stop=None):
 def plaats_bouwdelen(k, gebied, opties=None, voortgang=None, stop=None):
     """Maakt van de overige bouwwerken en gebouwinstallaties van de BGT in het gebied (x0, y0, x1, y1 in RD) uitgetrokken morphs.
 
-    opties: z (een vaste maaiveldhoogte, bijvoorbeeld 0 bij vlak terrein; anders het maaiveld uit de 3D Basisvoorziening)."""
-    o = {"z": None, "laag": LAAG}
+    opties: z (een vaste maaiveldhoogte, bijvoorbeeld 0 bij vlak terrein; anders het maaiveld uit de 3D Basisvoorziening) en stijl (de kleuren van
+    de gebouwoppervlakken uit de stijltabel halen, zoals bij de gebouwen)."""
+    o = {"z": None, "laag": LAAG, "stijl": False}
     o.update(opties or {})
     uit = {"vlakken": 0, "gelukt": 0, "mislukt": 0, "overgeslagen": 0, "zonder_regel": 0, "zonder_terrein": 0}
 
@@ -237,11 +242,17 @@ def plaats_bouwdelen(k, gebied, opties=None, voortgang=None, stop=None):
             print(f"   Het maaiveld kon niet worden opgehaald ({fout_}).")
             return uit
 
-    namen = {}                                                # stijlnaam -> (naam, kleur) voor de oppervlakken
-    for v in vlakken:
-        namen[v["regel"]["naam"]] = (v["regel"]["naam"], v["regel"]["kleur"])
-    defs = {f"bwd:{n}": ("PDOK_" + n, tuple(c / 255 for c in kleur), True) for n, (_, kleur) in namen.items()}
-    opp = D.zorg_voor_oppervlakken(k, False, defs) or {}
+    # dezelfde oppervlakken als de gebouwen: bovenkant dak (plat), zijkanten muur, onderkant grondvlak
+    D.STIJL_AAN["aan"] = bool(o["stijl"])
+    try:
+        opp = D.zorg_voor_oppervlakken(k, False, D.gebouw_oppervlak_definities()) or {}
+    finally:
+        D.STIJL_AAN["aan"] = False
+
+    def oppervlak_van(sleutel):
+        g = (opp.get(sleutel) or {}).get("guid")
+        return {"guid": g} if g else None
+    oppervlakken = {"boven": oppervlak_van("dak_plat"), "zijkant": oppervlak_van("muur"), "onder": oppervlak_van("grondvlak")}
 
     k.MAPNAAM = "PDOK Import"
     laag = k.zorg_voor_laag(o["laag"])
@@ -260,11 +271,9 @@ def plaats_bouwdelen(k, gebied, opties=None, voortgang=None, stop=None):
             z_onder, z_boven = z_min, z_gem + regel["hoogte"]
         if z_boven - z_onder < 0.05:
             z_boven = z_onder + 0.05
-        oppervlak = (opp.get(f"bwd:{regel['naam']}") or {}).get("guid")
-        oppervlak = {"guid": oppervlak} if oppervlak else None
-        basis, body = lichaam(v["buiten"], v["gaten"], z_onder, z_boven, oppervlak)
+        basis, body = lichaam(v["buiten"], v["gaten"], z_onder, z_boven, oppervlakken)
         items.append({"id": v["id"], "basis": basis, "body": body, "laag": laag, "buiten": v["buiten"], "gaten": v["gaten"],
-                      "z_onder": z_onder, "z_boven": z_boven, "oppervlak": oppervlak, "soort": v["soort"], "regel": regel})
+                      "z_onder": z_onder, "z_boven": z_boven, "oppervlakken": oppervlakken, "soort": v["soort"], "regel": regel})
     if uit["zonder_terrein"]:
         print(f"   {uit['zonder_terrein']} liggen niet op of vlak bij terrein en worden overgeslagen.")
     if not items:

@@ -74,6 +74,7 @@ STANDAARD_REGELS = [
     {"naam": "overigbouwwerk", "kleur": [224, 224, 230], "laag": "overigbouwwerk", "alleen": "2d"},
     # ---- overige bouwdelen in 3D (overig bouwwerk en gebouwinstallatie): de BGT heeft hier geen hoogte, dus de hoogte is een AANNAME per soort.
     #      Een blok staat op het maaiveld (hoogte = hoe hoog); een plaat hangt hoogte meter boven het maaiveld en is dikte meter dik.
+    #      De kleur telt hier niet: bouwdelen krijgen dezelfde oppervlakken als de gebouwen (dak plat, muur, grondvlak; zie laag "gebouw" hieronder).
     {"naam": "bwd_overkapping", "kleur": [168, 168, 172], "laag": "overigbouwwerk", "type": "overkapping", "alleen": "3d", "vorm": "plaat", "hoogte": 3.0, "dikte": 0.2},
     {"naam": "bwd_open_loods", "kleur": [150, 150, 156], "laag": "overigbouwwerk", "type": "open loods", "alleen": "3d", "vorm": "plaat", "hoogte": 4.0, "dikte": 0.3},
     {"naam": "bwd_schuur", "kleur": [196, 180, 150], "laag": "overigbouwwerk", "type": "schuur", "alleen": "3d", "vorm": "blok", "hoogte": 3.5},

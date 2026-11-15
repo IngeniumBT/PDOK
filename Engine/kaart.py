@@ -1236,7 +1236,7 @@ def meld_voortgang_bomen(tekst, fractie=None):
 BOMEN_VOORTGANG = {"binnen": None}
 
 
-def importeer_bouwdelen_uit_venster(gebied, vast_niveau=None):
+def importeer_bouwdelen_uit_venster(gebied, vast_niveau=None, stijlen=False):
     if bouwdelen is None or bomen is None:
         print("3D-bouwdelen overgeslagen: bouwdelen.py (met bomen.py, terrein.py, drie_d.py en stijl.py) staat niet naast kaart.py.")
         return 0
@@ -1245,7 +1245,7 @@ def importeer_bouwdelen_uit_venster(gebied, vast_niveau=None):
         return 0
     print("\n=== 3D-bouwdelen ===")
     try:
-        uitkomst = bouwdelen.plaats_bouwdelen(sys.modules[__name__], gebied, {"z": vast_niveau}, voortgang=meld_voortgang_bomen, stop=moet_stoppen)
+        uitkomst = bouwdelen.plaats_bouwdelen(sys.modules[__name__], gebied, {"z": vast_niveau, "stijl": stijlen}, voortgang=meld_voortgang_bomen, stop=moet_stoppen)
         return uitkomst["gelukt"]
     except Exception as fout:
         print(f"3D-bouwdelen mislukt: {fout}")
@@ -1479,7 +1479,7 @@ def _importeer(aanvraag, deel="alles"):
             (x_min, y_min, x_max, y_max), True, aanvraag.get("hoogtemodus") == "nul", "scheidingen")
     if deel == "bouwdelen":
         niveau = 0.0 if aanvraag.get("hoogtemodus") == "nul" else None            # bij vlak terrein staan de bouwdelen op 0 m
-        return importeer_bouwdelen_uit_venster((x_min, y_min, x_max, y_max), niveau)
+        return importeer_bouwdelen_uit_venster((x_min, y_min, x_max, y_max), niveau, bool(aanvraag.get("stijl3d")))
     if deel == "lichtmasten":
         niveau = 0.0 if aanvraag.get("hoogtemodus") == "nul" else None            # bij vlak terrein staan de lichtmasten op 0 m
         return importeer_lichtmasten_uit_venster((x_min, y_min, x_max, y_max), aanvraag.get("lichtobject", ""), niveau)
