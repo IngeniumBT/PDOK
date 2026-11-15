@@ -1557,13 +1557,14 @@ def _importeer(aanvraag, deel="alles"):
 
 PAGINA = """<!DOCTYPE html>
 <html lang="nl"><head><meta charset="utf-8">
-<title>PDOK naar Archicad</title>
+<title>PDOK Import</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.2/proj4.js"></script>
 <style>
  body{margin:0;font-family:sans-serif;display:flex;height:100vh}
- #paneel{width:340px;padding:12px;box-sizing:border-box;overflow:auto;background:#f4f4f4}
+ #paneel{width:340px;box-sizing:border-box;background:#f4f4f4;display:flex;flex-direction:column;overflow:hidden}
+ #inhoud{flex:1 1 auto;min-height:0;overflow:auto;padding:12px 12px 4px;box-sizing:border-box}
  #map{flex:1}
  input[type=text]{width:100%;box-sizing:border-box;padding:6px}
  #plannaam{font-size:14px;margin:6px 0;word-break:break-all}
@@ -1603,17 +1604,18 @@ PAGINA = """<!DOCTYPE html>
  button.primair:disabled{background:#8da3c0;border-color:#8da3c0}
  button.accent{background:#e8f0fa;border:1px solid #1f4e8c;color:#163a69;font-weight:600}
  #importeer{padding:12px;font-size:16px}
- #actie{position:sticky;bottom:0;background:#f4f4f4;border-top:1px solid #d3d3d3;margin:8px -12px -12px;padding:8px 12px 10px;z-index:4}
+ #actie{flex:0 0 auto;background:#f4f4f4;border-top:1px solid #c4c4c4;box-shadow:0 -3px 6px rgba(0,0,0,.08);padding:8px 12px 10px;z-index:4}
  #actie button{margin-top:0}
  details.uitleg summary,#geavanceerd3d summary{cursor:pointer;color:#163a69;font-size:12.5px;margin:4px 0}
 </style></head><body>
 <div id="paneel">
+<div id="inhoud">
  <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">
   <img src="/logo.png" alt="Ingenium - partner in bouwtechniek" title="Ingenium - partner in bouwtechniek" style="height:26px;width:auto;display:block">
   <span><button id="kleiner" title="Kleinere tekst in dit paneel" style="width:auto;margin:0;padding:1px 8px">A-</button> <button id="groter" title="Grotere tekst in dit paneel" style="width:auto;margin:0;padding:1px 8px">A+</button></span>
  </div>
  <div id="updatemelding" class="klein" style="display:none;background:#fff3cd;border:1px solid #e0c36a;padding:4px 6px;margin:0 0 6px"></div>
- <h3 style="margin:6px 0 8px">PDOK naar Archicad</h3>
+ <h3 style="margin:6px 0 8px">PDOK Import</h3>
 
  <div class="kaart">
   <div class="bedien" style="margin:0">
@@ -1653,7 +1655,7 @@ PAGINA = """<!DOCTYPE html>
    </div>
   </div>
   <div class="raster2">
-   <label><input type="checkbox" id="drie_gebouwen"> Gebouwen (LoD 2.2)</label>
+   <label><input type="checkbox" id="drie_gebouwen"> Gebouwen</label>
    <label><input type="checkbox" id="drie_terrein"> Terrein</label>
    <label><input type="checkbox" id="drie_scheidingen"> Scheidingen</label>
    <label><input type="checkbox" id="drie_bomen"> Bomen</label>
@@ -1720,7 +1722,7 @@ PAGINA = """<!DOCTYPE html>
   <div class="klein"><a href="/test">Diagnose</a> &middot; <a href="#" id="resetinstellingen" title="Zet alle keuzes terug naar de standaardwaarden">Standaardinstellingen herstellen</a></div>
  </details>
  <div class="klein" style="margin:0 0 8px">versie __VERSIE__</div>
-
+</div>
  <div id="actie">
   <button id="importeer" class="primair">Importeren in Archicad</button>
   <div id="status"></div>

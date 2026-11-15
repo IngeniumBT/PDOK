@@ -1,6 +1,6 @@
 # PDOK Import voor Archicad - handleiding voor proefgebruikers
 
-Versie 0.20.0 (proefversie). Deze add-on haalt gegevens van PDOK (de BGT, het kadaster, bestemmingsplannen en de 3D Basisvoorziening) op
+Versie 0.20.1 (proefversie). Deze add-on haalt gegevens van PDOK (de BGT, het kadaster, bestemmingsplannen en de 3D Basisvoorziening) op
 en zet ze in je Archicad-project: als lijnen en vlakken, als 3D-gebouwen, als terrein en als bomen.
 
 ## Wat heb je nodig
@@ -30,7 +30,7 @@ Archicad. Een oude versie wordt vanzelf opgeruimd.
 3. **Teken je importgebied**: klik op *Gebied tekenen* en sleep een rechthoek over de kaart, of houd **Shift** ingedrukt en sleep. Slepen zonder
    Shift verschuift de kaart. Onder de knoppen staat de afmeting (en achter *Uitleg gebied tekenen* staat hoe het werkt). Maximaal 3000 x 3000 m; **begin klein** (bijvoorbeeld 300 x 300 m). Een gebied
    groter dan 600 m wordt in blokken verwerkt. **Esc** annuleert het tekenen.
-4. **Kies wat je wilt importeren** (zie hieronder) en klik op **Importeren in Archicad**. De knop staat onderaan het palet en blijft in beeld als je scrolt. Een voortgangsbalk toont hoever het is, met een knop om te stoppen. Eronder loopt een **timer**; na afloop staat daar hoe lang de import duurde, met de tijd per onderdeel (bijvoorbeeld *Klaar in 4:41 (3D-gebouwen 1:05 · 3D-terrein 3:20)*).
+4. **Kies wat je wilt importeren** (zie hieronder) en klik op **Importeren in Archicad**. De knop staat in een vaste strook onderaan het palet en blijft in beeld als je scrolt; de tekst erboven scrolt apart. Een voortgangsbalk toont hoever het is, met een knop om te stoppen. Eronder loopt een **timer**; na afloop staat daar hoe lang de import duurde, met de tijd per onderdeel (bijvoorbeeld *Klaar in 4:41 (3D-gebouwen 1:05 · 3D-terrein 3:20)*).
 5. Het resultaat staat in lagen in de map **PDOK Import** in je project.
 
 Het palet heeft rechtsboven **A-** en **A+** voor de tekstgrootte (de keuze wordt onthouden).
