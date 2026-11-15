@@ -132,7 +132,7 @@ def plaats_lichtmasten(k, gebied, opties=None, voortgang=None, stop=None):
     else:
         print("Terreinhoogte bepalen uit de 3D Basisvoorziening van PDOK...")
         try:
-            hoogtes, _ = B.hoogtes_uit_terreindata(punten)
+            hoogtes, _ = B.hoogtes_uit_terreindata(punten, uitsnede_gebied=tuple(gebied))
         except Exception as fout:
             print(f"   De terreinhoogte kon niet worden opgehaald ({fout}).")
             return uit

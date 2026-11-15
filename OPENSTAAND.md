@@ -1,6 +1,6 @@
 # Openstaande punten en bevindingen (PDOK Import)
 
-Dit bestand legt vast wat er nog open staat en wat we hebben gemeten, zodat het later opgepakt kan worden. Bijgewerkt bij versie 0.22.0.
+Dit bestand legt vast wat er nog open staat en wat we hebben gemeten, zodat het later opgepakt kan worden. Bijgewerkt bij versie 0.23.0.
 
 ## Wat af is
 Kaart en palet, 2D-lagen (BGT, kadaster, bestemmingsplan), teksten, bomen (met zoekvak), 3D-gebouwen (LoD 2.2, met terugvalstappen en zoeken naar de kleinste groep driehoeken),

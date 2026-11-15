@@ -237,7 +237,7 @@ def plaats_bouwdelen(k, gebied, opties=None, voortgang=None, stop=None):
     else:
         print("Maaiveld bepalen uit de 3D Basisvoorziening van PDOK...")
         try:
-            hoogtes, _ = B.hoogtes_uit_terreindata(monsters)
+            hoogtes, _ = B.hoogtes_uit_terreindata(monsters, uitsnede_gebied=tuple(gebied))
         except Exception as fout_:
             print(f"   Het maaiveld kon niet worden opgehaald ({fout_}).")
             return uit

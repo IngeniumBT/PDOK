@@ -32,6 +32,8 @@ Elk pand wordt een Morph op de laag 3D_gebouwen, met het BAG-pandnummer als Elem
 import json
 import math
 import os
+import pickle
+from operator import itemgetter
 import re
 import sys
 import zipfile
@@ -263,6 +265,145 @@ def vertex_lezer(data):
         s, t = tf["scale"], tf["translate"]
         return lambda i: (pts[i][0] * s[0] + t[0], pts[i][1] * s[1] + t[1], pts[i][2] * s[2] + t[2])
     return lambda i: tuple(pts[i])
+
+
+# ----------------------------------------------------------------- uitsneden van grote tegels
+# Een tegel van de 3D Basisvoorziening kan ~100 MB CityJSON zijn, terwijl een import maar een klein gebied nodig heeft. Terrein, scheidingen, de hoogte voor
+# bomen, lichtmasten en bouwdelen lazen hem elk opnieuw. Nu wordt een groot bestand een keer gelezen en teruggebracht tot een UITSNEDE (de objecten die het
+# gebied met een rand raken); die wordt in het geheugen en op schijf bewaard en door alle onderdelen (en volgende imports van hetzelfde gebied) gedeeld.
+SNEL_MB = float(os.environ.get("PDOK_SNEL_MB", 20))    # kleinere bestanden worden gewoon helemaal gelezen (de omgevingsvariabele is voor tests)
+UITSNEDE_RAND = 30.0          # m: de rand om het gebied (de bomen zoeken tot 15 m ver naar een hoekpunt)
+UITSNEDE_RASTER = 50.0        # m: het gebied wordt naar buiten op dit raster afgerond, zodat kleine verschillen dezelfde uitsnede geven
+UITSNEDE_VERSIE = 1
+UITSNEDEN = {}                # sleutel -> uitsnede, in het geheugen (de laatste paar)
+
+
+def _ringen(b):
+    """De ringen (lijsten hoekpuntnummers) in een geneste lijst met begrenzingen."""
+    stapel = [b]
+    while stapel:
+        e = stapel.pop()
+        if not e:
+            continue
+        if isinstance(e, int):
+            continue
+        if isinstance(e[0], int):
+            yield e
+        else:
+            stapel.extend(e)
+
+
+def _hernummer(b, nummer):
+    if isinstance(b, int):
+        return nummer(b)
+    if b and isinstance(b[0], int):
+        return [nummer(i) for i in b]
+    return [_hernummer(e, nummer) for e in b]
+
+
+def maak_uitsnede(data, regio):
+    """De objecten van een CityJSON die het vak regio = (x0, y0, x1, y1) raken, met een eigen, kleine hoekpuntenlijst (zelfde transform)."""
+    tf = data.get("transform") or {"scale": [1, 1, 1], "translate": [0, 0, 0]}
+    sc, tr = tf["scale"], tf["translate"]
+    V = data.get("vertices", [])
+    X = [p[0] * sc[0] + tr[0] for p in V]
+    Y = [p[1] * sc[1] + tr[1] for p in V]
+    objecten = data.get("CityObjects", {})
+    gekozen = set()
+    for oid, o in objecten.items():
+        minx = miny = float("inf")
+        maxx = maxy = float("-inf")
+        for g in o.get("geometry") or []:
+            for ring in _ringen(g.get("boundaries")):
+                if len(ring) > 1:
+                    pak = itemgetter(*ring)                  # in een keer de punten van de ring pakken (sneller dan een lus)
+                    xs, ys = pak(X), pak(Y)
+                else:
+                    xs, ys = [X[ring[0]]], [Y[ring[0]]]
+                minx, maxx = min(minx, min(xs)), max(maxx, max(xs))
+                miny, maxy = min(miny, min(ys)), max(maxy, max(ys))
+        if maxx >= regio[0] and minx <= regio[2] and maxy >= regio[1] and miny <= regio[3]:
+            gekozen.add(oid)
+    for _ in range(2):                                    # de ouders en kinderen van wat gekozen is horen er ook bij (bijvoorbeeld een brug en zijn delen)
+        extra = set()
+        for oid in gekozen:
+            for rel in ("children", "parents"):
+                extra.update(r for r in (objecten[oid].get(rel) or []) if r in objecten)
+        gekozen |= extra
+    nieuw_nr, nieuwe = {}, []
+
+    def nummer(i):
+        if i not in nieuw_nr:
+            nieuw_nr[i] = len(nieuwe)
+            nieuwe.append(V[i])
+        return nieuw_nr[i]
+    uit_objecten = {}
+    for oid in objecten:                                  # de volgorde van het bestand behouden
+        if oid not in gekozen:
+            continue
+        o = dict(objecten[oid])
+        o["geometry"] = [dict(g, boundaries=_hernummer(g.get("boundaries") or [], nummer)) for g in (o.get("geometry") or [])]
+        uit_objecten[oid] = o
+    uit = {k: v for k, v in data.items() if k not in ("CityObjects", "vertices")}
+    uit["CityObjects"] = uit_objecten
+    uit["vertices"] = nieuwe
+    return uit
+
+
+def lees_json(z, info, gebied=None):
+    """De CityJSON in een bestand van een tegel (zip). Met een gebied wordt een groot bestand vervangen door de uitsnede van dat gebied,
+    die in het geheugen en op schijf wordt bewaard; zonder gebied, of bij een klein bestand, wordt het helemaal gelezen."""
+    mb = info.file_size / 1024 / 1024
+    if gebied is None or mb < SNEL_MB:
+        print(f"   {info.filename} lezen ({mb:.0f} MB uitgepakt)...")
+        with z.open(info) as f:
+            return json.load(f)
+    r = UITSNEDE_RASTER
+    regio = (math.floor((gebied[0] - UITSNEDE_RAND) / r) * r, math.floor((gebied[1] - UITSNEDE_RAND) / r) * r,
+             math.ceil((gebied[2] + UITSNEDE_RAND) / r) * r, math.ceil((gebied[3] + UITSNEDE_RAND) / r) * r)
+    try:
+        st = os.stat(z.filename)
+        bron = f"{os.path.basename(z.filename)}_{st.st_size}_{int(st.st_mtime)}"
+    except (OSError, TypeError):
+        bron = os.path.basename(str(z.filename))
+    sleutel = f"v{UITSNEDE_VERSIE}_{bron}_{info.filename.replace('/', '_')}_{regio[0]:.0f}_{regio[1]:.0f}_{regio[2]:.0f}_{regio[3]:.0f}"
+    if sleutel in UITSNEDEN:
+        u = UITSNEDEN[sleutel]
+        print(f"   {info.filename}: uitsnede uit het geheugen ({len(u['CityObjects'])} objecten)")
+        return u
+    map_ = os.path.join(CACHE, "uitsneden")
+    pad = os.path.join(map_, sleutel.replace("/", "_") + ".pkl")
+    u = None
+    if os.path.exists(pad):
+        try:
+            with open(pad, "rb") as f:
+                u = pickle.load(f)
+            print(f"   {info.filename}: uitsnede uit de cache ({len(u['CityObjects'])} objecten; het bestand van {mb:.0f} MB hoeft niet te worden gelezen)")
+        except Exception:
+            u = None
+    if u is None:
+        print(f"   {info.filename} lezen ({mb:.0f} MB uitgepakt)...")
+        with z.open(info) as f:
+            data = json.load(f)
+        totaal = len(data.get("CityObjects", {}))
+        u = maak_uitsnede(data, regio)
+        del data
+        print(f"   uitsnede voor dit gebied: {len(u['CityObjects'])} van {totaal} objecten (wordt bewaard voor de volgende onderdelen en imports)")
+        try:
+            os.makedirs(map_, exist_ok=True)
+            tmp = pad + ".tmp"
+            with open(tmp, "wb") as f:
+                pickle.dump(u, f, protocol=pickle.HIGHEST_PROTOCOL)
+            os.replace(tmp, pad)
+            oud = sorted((os.path.getmtime(os.path.join(map_, n)), n) for n in os.listdir(map_) if n.endswith(".pkl"))
+            for _, n in oud[:-40]:                          # hoogstens 40 uitsneden bewaren
+                os.remove(os.path.join(map_, n))
+        except OSError:
+            pass
+    while len(UITSNEDEN) >= 4:
+        UITSNEDEN.pop(next(iter(UITSNEDEN)))
+    UITSNEDEN[sleutel] = u
+    return u
 
 
 def bereik_vertices(data):
@@ -833,8 +974,7 @@ def verzamel(gebied):
                 if i.file_size / 1024 / 1024 > MAX_PARSE_MB:
                     print(f"   {i.filename}: te groot om te lezen, overgeslagen")
                     continue
-                with z.open(i) as f:
-                    data = json.load(f)
+                data = lees_json(z, i, gebied)
                 bereik = bereik_vertices(data)
                 if bereik and (bereik[2] < gebied[0] or bereik[0] > gebied[2]
                                or bereik[3] < gebied[1] or bereik[1] > gebied[3]):

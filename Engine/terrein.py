@@ -1968,9 +1968,7 @@ def verzamel(gebied, typen, met_bruggen, voetafdrukken=False, sla_over=()):     
                 if i.file_size / 1024 / 1024 > D.MAX_PARSE_MB:
                     print(f"   {i.filename}: te groot om te lezen, overgeslagen")
                     continue
-                print(f"   {i.filename} lezen ({i.file_size / 1024 / 1024:.0f} MB uitgepakt)...")
-                with z.open(i) as f:
-                    data = json.load(f)
+                data = D.lees_json(z, i, gebied)
                 bereik = D.bereik_vertices(data)
                 if bereik and (bereik[2] < gebied[0] or bereik[0] > gebied[2]
                                or bereik[3] < gebied[1] or bereik[1] > gebied[3]):
@@ -2086,8 +2084,7 @@ def vlak_niveau(gebied, modus, waarde=None):
             for i in z.infolist():
                 if not i.filename.lower().endswith(".json") or i.is_dir() or i.file_size / 1024 / 1024 > D.MAX_PARSE_MB:
                     continue
-                with z.open(i) as f:
-                    data = json.load(f)
+                data = D.lees_json(z, i, gebied)
                 bereik = D.bereik_vertices(data)
                 if bereik and (bereik[2] < gebied[0] or bereik[0] > gebied[2] or bereik[3] < gebied[1] or bereik[1] > gebied[3]):
                     continue
@@ -2127,8 +2124,8 @@ def bouw_alle_meshes(objecten, opties):
     return meshes, totaal
 
 
-def json_van_tegel(pad):
-    """De CityJSON-bestanden uit een tegel (zip), een voor een."""
+def json_van_tegel(pad, gebied=None):
+    """De CityJSON-bestanden uit een tegel (zip), een voor een. Met een gebied: de uitsnede van dat gebied (zie drie_d.lees_json)."""
     with zipfile.ZipFile(pad) as z:
         for i in z.infolist():
             if not i.filename.lower().endswith(".json") or i.is_dir():
@@ -2136,9 +2133,7 @@ def json_van_tegel(pad):
             if i.file_size / 1024 / 1024 > D.MAX_PARSE_MB:
                 print(f"   {i.filename}: te groot om te lezen, overgeslagen")
                 continue
-            print(f"   {i.filename} lezen ({i.file_size / 1024 / 1024:.0f} MB uitgepakt)...")
-            with z.open(i) as f:
-                yield json.load(f)
+            yield D.lees_json(z, i, gebied)
 
 
 def importeer_terrein_blokken(k, gebied, opties):

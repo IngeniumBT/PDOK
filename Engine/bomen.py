@@ -149,12 +149,13 @@ def z_in_driehoek(x, y, a, b, c):
     return l1 * a[2] + l2 * b[2] + l3 * c[2]
 
 
-def hoogtes_uit_terreindata(punten, marge=1.0, terugval=15.0):
+def hoogtes_uit_terreindata(punten, marge=1.0, terugval=15.0, uitsnede_gebied=None):
     """De terreinhoogte onder elk punt uit de 3D Basisvoorziening van PDOK (het CityJSON-terreinmodel).
 
     Per punt wordt de driehoek gezocht waarin het punt ligt, en de hoogte daarop geinterpoleerd; liggen er meer
     driehoeken boven elkaar, dan telt de hoogste. Een punt zonder driehoek (bijvoorbeeld in de voetafdruk van een
     gebouw) krijgt de hoogte van het dichtstbijzijnde hoekpunt binnen `terugval` meter.
+    uitsnede_gebied: het gebied van de hele import; daarmee wordt de uitsnede van een grote tegel gedeeld met het terrein en de andere onderdelen.
     Geeft (hoogtes, methoden): per punt de hoogte en 'terreindata' of 'nabij', of None."""
     import drie_d as D
     import terrein as T
@@ -175,7 +176,7 @@ def hoogtes_uit_terreindata(punten, marge=1.0, terugval=15.0):
         print(f"      {t_['download_link'].split('/')[-1]}  {(t_.get('download_size_bytes') or 0) / 1024 / 1024:.1f} MB")
     for tegel in tegels:
         pad = D.download(tegel)
-        for data in T.json_van_tegel(pad):
+        for data in T.json_van_tegel(pad, uitsnede_gebied or (gebied[0] - terugval, gebied[1] - terugval, gebied[2] + terugval, gebied[3] + terugval)):
             bereik = D.bereik_vertices(data)
             if bereik and (bereik[2] < gebied[0] or bereik[0] > gebied[2] or bereik[3] < gebied[1]
                            or bereik[1] > gebied[3]):
@@ -555,7 +556,7 @@ def plaats_bomen(k, gebied, opties=None, voortgang=None, stop=None):
         meld("Bomen: terreinhoogte bepalen")
         print("Terreinhoogte bepalen uit de 3D Basisvoorziening van PDOK...")
         try:
-            hoogtes, soort = hoogtes_uit_terreindata(punten)
+            hoogtes, soort = hoogtes_uit_terreindata(punten, uitsnede_gebied=tuple(gebied))
         except Exception as fout:
             print(f"   De terreinhoogte kon niet worden opgehaald ({fout}); gebruik eventueel --z.")
             return uit

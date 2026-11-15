@@ -1,6 +1,6 @@
 # PDOK Import voor Archicad - handleiding voor proefgebruikers
 
-Versie 0.22.2 (proefversie). Deze add-on haalt gegevens van PDOK (de BGT, het kadaster, bestemmingsplannen en de 3D Basisvoorziening) op
+Versie 0.23.0 (proefversie). Deze add-on haalt gegevens van PDOK (de BGT, het kadaster, bestemmingsplannen en de 3D Basisvoorziening) op
 en zet ze in je Archicad-project: als lijnen en vlakken, als 3D-gebouwen, als terrein en als bomen.
 
 ## Wat heb je nodig
@@ -89,6 +89,7 @@ de cache en gaat het sneller.
 - **Ongedaan maken** werkt: elke stap in Archicad is een eigen, ongedaan te maken opdracht.
 - **Nogmaals importeren** slaat gebouwen, terrein en bomen over die er al staan (ze herkennen elkaar aan het ID). Lijnen en vlakken worden opnieuw getekend: wis
   ze eerst als je ze vervangt.
+- **De eerste import van een gebied is het langzaamst.** De 3D-gegevens komen in grote bestanden (tot ongeveer 100 MB). De import leest zo'n bestand één keer en bewaart alleen het stuk rond je gebied (met een rand van 30 m); terrein, scheidingen, bomen, lichtmasten en bouwdelen gebruiken dat samen. Dat stuk blijft ook op schijf bewaard (map `3d_cache\uitsneden` in `%LOCALAPPDATA%\PDOKImport`, hoogstens 40 stuks), dus een volgende import van hetzelfde gebied (of een iets kleiner gebied) hoeft het grote bestand niet meer te lezen. Het log meldt dit (*uitsnede uit de cache*).
 - **Alles komt in de map PDOK Import** (lagen), zodat je het makkelijk kunt tonen, verbergen of verwijderen.
 
 ## Beperkingen van deze proefversie
