@@ -1582,97 +1582,152 @@ PAGINA = """<!DOCTYPE html>
  .pen{width:56px;padding:2px}
  #planinfo{font-size:13px;color:#555;margin:4px 0}
  .klein{font-size:12px;color:#555;margin:4px 0}
- #status{margin-top:12px;font-size:14px;white-space:pre-wrap}
+ #status{margin-top:6px;font-size:13px;white-space:pre-wrap;max-height:84px;overflow:auto}
+ .kaart{background:#fff;border:1px solid #d3d3d3;border-radius:6px;padding:10px;margin:0 0 10px}
+ .kaartkop{font-size:15px;font-weight:700;margin:0 0 6px}
+ summary.kaartkop{cursor:pointer}
+ .kaart .groep{margin:4px 0;border-color:#d3d3d3;border-radius:4px}
+ .penkop{font-size:12px;color:#4f4f4f;text-align:right;padding-right:22px;margin:0 0 2px}
+ .optie{display:block;margin:6px 0 0}
+ .raster2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;margin:8px 0}
+ .sub{background:#f4f6f9;border:1px dashed #aab4c2;border-radius:4px;padding:6px 8px;margin:0 0 8px}
+ .hoogterij{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:0 0 6px}
+ .segment{display:flex;border:1px solid #8a8a8a;border-radius:4px;overflow:hidden}
+ .segment label{position:relative;margin:0}
+ .segment input{position:absolute;opacity:0;width:0;height:0}
+ .segment span{display:block;padding:6px 10px;background:#fafafa;cursor:pointer;font-size:13px;white-space:nowrap}
+ .segment label + label span{border-left:1px solid #8a8a8a}
+ .segment input:checked + span{background:#1f4e8c;color:#fff;font-weight:600}
+ .segment input:focus-visible + span{outline:2px solid #1f4e8c;outline-offset:-2px}
+ button.primair{background:#1f4e8c;border:1px solid #1f4e8c;color:#fff;font-weight:700;border-radius:4px}
+ button.primair:disabled{background:#8da3c0;border-color:#8da3c0}
+ button.accent{background:#e8f0fa;border:1px solid #1f4e8c;color:#163a69;font-weight:600}
+ #importeer{padding:12px;font-size:16px}
+ #actie{position:sticky;bottom:0;background:#f4f4f4;border-top:1px solid #d3d3d3;margin:8px -12px -12px;padding:8px 12px 10px;z-index:4}
+ #actie button{margin-top:0}
+ details.uitleg summary,#geavanceerd3d summary{cursor:pointer;color:#163a69;font-size:12.5px;margin:4px 0}
 </style></head><body>
-<div style="position:fixed;right:6px;bottom:4px;font-size:11px;z-index:5"><a href="/test">diagnose</a> &middot; versie __VERSIE__ &middot; <a href="#" id="resetinstellingen" title="Zet alle keuzes terug naar de standaardwaarden">standaardinstellingen</a></div>
 <div id="paneel">
  <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">
   <img src="/logo.png" alt="Ingenium - partner in bouwtechniek" title="Ingenium - partner in bouwtechniek" style="height:26px;width:auto;display:block">
   <span><button id="kleiner" title="Kleinere tekst in dit paneel" style="width:auto;margin:0;padding:1px 8px">A-</button> <button id="groter" title="Grotere tekst in dit paneel" style="width:auto;margin:0;padding:1px 8px">A+</button></span>
  </div>
  <div id="updatemelding" class="klein" style="display:none;background:#fff3cd;border:1px solid #e0c36a;padding:4px 6px;margin:0 0 6px"></div>
- <h3 style="margin:6px 0">PDOK naar Archicad</h3>
- <div class="bedien">
-  <div class="rij">
-   <input type="text" id="adres" placeholder="Zoek een adres...">
-   <button id="zoek" class="compact">Zoeken</button>
-  </div>
-  <div class="rij">
-   <button id="heelnl" class="compact" title="Toon heel Nederland">Kaart uitzoomen</button>
-   <button id="teken" class="compact" title="Teken het importgebied door een rechthoek over de kaart te slepen">Gebied tekenen</button>
-   <button id="extern" class="compact" style="display:none" title="Open deze kaart in je gewone browser, bijvoorbeeld om een bestand te kiezen">Openen in browser</button>
-  </div>
- </div>
- <p class="klein">Teken je importgebied: klik op <b>Gebied tekenen</b> en sleep een rechthoek over de kaart, of houd <b>Shift</b> ingedrukt
- en sleep. Zonder dat verschuift slepen de kaart. Maximaal __MAX_ZIJDE__ x __MAX_ZIJDE__ m; een gebied groter dan 600 m wordt
- in blokken verwerkt. <b>Esc</b> annuleert.</p>
- <b>Lagen</b> <small>(rechts: pennummer, leeg = standaard)</small>
- <div id="lagen">Lagen laden...</div>
- <p><label><input type="checkbox" id="alleniveaus"> Ook objecten boven en onder maaiveld</label></p>
- <b>3D</b> <small>(PDOK 3D Basisvoorziening, hoogtes in NAP)</small>
- <div class="groep">
-  <div class="klein" style="margin:0 0 2px"><b>Hoogtes</b> (geldt voor het terrein, de gebouwen en de bomen)</div>
-  <label class="klein" style="display:block"><input type="radio" name="hoogte" id="hoogte_bron" value="bron" checked> Volgens de 3D Basisvoorziening (NAP)</label>
-  <label class="klein" style="display:block;margin-bottom:6px"><input type="radio" name="hoogte" id="hoogte_nul" value="nul"> Vlak: bovenkant terrein op 0 m; de onderkant van gebouwen en de bomen op 0 m</label>
-  <label><input type="checkbox" id="drie_gebouwen"> Gebouwen (LoD 2.2, als Morphs)</label><br>
-  <label><input type="checkbox" id="drie_materiaal" checked> &nbsp;&nbsp;met materialen (dak, muur, grondvlak)</label><br>
-  <label><input type="checkbox" id="drie_terrein"> Terrein (als Meshes, op vier lagen)</label><br>
-  <label class="klein"><input type="checkbox" id="drie_naad" checked> &nbsp;&nbsp;naadsluiting (dicht spleten tussen vlakken)</label>
-  <input type="text" id="drie_overslaan" placeholder="Terreintypen overslaan, bijv. open loods; overkapping">
-  <div class="rij" style="margin:6px 0;align-items:center">
-   <label class="klein" for="drie_skirt" style="flex:0 0 auto">Onderkant:</label>
-   <select id="drie_skirt" style="flex:1 1 auto;min-width:0"><option value="volume" selected>als volume (massief)</option><option value="zijvlakken">met zijvlakken</option><option value="oppervlak">alleen het bovenvlak</option></select>
-   <input type="text" id="drie_diepte" value="1" title="Diepte van de onderkant onder het laagste punt, in meter" style="flex:0 0 52px;width:52px"> <span class="klein">m</span>
-  </div>
-  <label class="klein" style="display:block;margin:2px 0">Naden: hoogteverschillen tot <input type="text" id="drie_naadmax" value="10" title="Meshes die elkaar raken, worden op hun rand gelijk gemaakt als het hoogteverschil kleiner is dan dit (in centimeters). Een groter verschil blijft zoals in de bron (een stoeprand, kade of talud)." style="width:40px"> cm gelijktrekken; grotere stappen blijven zoals in de bron</label>
-  <label class="klein" style="display:block;margin:2px 0"><input type="checkbox" id="drie_dekken" checked> Viaducten en bruggen meenemen (als dun dek)</label>
+ <h3 style="margin:6px 0 8px">PDOK naar Archicad</h3>
 
-  <label><input type="checkbox" id="drie_scheidingen"> Scheidingen (muren en hekken, als Morphs)</label><br>
-  <label><input type="checkbox" id="drie_bomen"> Bomen (BGT-vegetatiepunten, als 3D-object op het terrein)</label>
-  <div style="position:relative">
-   <input type="text" id="drie_boomobject" value="Boom stedenbouw 02" placeholder="Zoek een bibliotheekobject, bijvoorbeeld boom" autocomplete="off">
-   <div id="boomlijst" style="display:none;position:absolute;left:0;right:0;z-index:30;max-height:190px;overflow:auto;background:#fff;border:1px solid #888;box-shadow:0 3px 8px rgba(0,0,0,.3)"></div>
+ <div class="kaart">
+  <div class="bedien" style="margin:0">
+   <div class="rij">
+    <input type="text" id="adres" placeholder="Zoek een adres...">
+    <button id="zoek" class="compact">Zoeken</button>
+   </div>
+   <div class="rij">
+    <button id="heelnl" class="compact" title="Toon heel Nederland">Uitzoomen</button>
+    <button id="teken" class="compact accent" title="Teken het importgebied door een rechthoek over de kaart te slepen">Gebied tekenen</button>
+    <button id="extern" class="compact" style="display:none" title="Open deze kaart in je gewone browser, bijvoorbeeld om een bestand te kiezen">In browser</button>
+   </div>
   </div>
-  <div id="boomstatus" class="klein" style="margin:2px 0 4px"></div>
-  <div class="klein">Het eerste keer ophalen kan een minuut duren (tegel van enkele tientallen MB). Wat al bestaat
-  wordt overgeslagen. De oppervlakken van het terrein stel je zelf per laag in; zie de terminal.</div>
-  <details id="hulp" style="margin:6px 0"><summary class="klein"><b>Hulpmiddelen voor het terrein</b></summary>
-   <div class="rij" style="margin:6px 0">
-    <button id="drie_controle" class="compact" title="Vergelijkt het terrein in Archicad met de bron voor het getekende gebied en meldt wat ontbreekt">Terreincontrole</button>
-    <button id="drie_wis" class="compact" title="Verwijdert alle meshes op de PDOK-terreinlagen (Ongedaan maken in Archicad brengt ze terug)">Terrein wissen</button>
-   </div>
-   <div class="rij" style="margin:0 0 6px">
-    <button id="drie_kwaliteit" class="compact" title="Meet voor het getekende gebied hoe goed het terrein in Archicad bij de bron past: hoogte, gaten, overlap en de kwaliteit van de driehoeken (verandert niets)">Meshkwaliteit meten</button>
-    <button id="drie_soorten" class="compact" title="Telt voor het getekende gebied welke combinaties van BGT-eigenschappen (functie, fysiek voorkomen, plus-fysiek voorkomen) er in de 2D- en de 3D-bron voorkomen, met aantallen en oppervlakte (verandert niets)">Soorten meten</button>
-    <button id="drie_scheidingen_meten" class="compact" title="Meet voor het getekende gebied hoe de scheidingen (muren, hekken) op het terrein staan en op elkaar aansluiten, volgens de bron (verandert niets)">Scheidingen meten</button>
-   </div>
-   <pre id="drie_uit" class="klein" style="display:none;white-space:pre-wrap;max-height:260px;overflow:auto;background:#fff;border:1px solid #ccc;padding:6px;margin:0 0 6px"></pre>
+  <div id="gebiedinfo" class="klein">Nog geen gebied gekozen.</div>
+  <details class="uitleg"><summary>Uitleg gebied tekenen</summary>
+   <p class="klein">Klik op <b>Gebied tekenen</b> en sleep een rechthoek over de kaart, of houd <b>Shift</b> ingedrukt
+   en sleep. Zonder dat verschuift slepen de kaart. Maximaal __MAX_ZIJDE__ x __MAX_ZIJDE__ m; een gebied groter dan 600 m wordt
+   in blokken verwerkt. <b>Esc</b> annuleert.</p>
   </details>
  </div>
- <b>Bestemmingsplan</b>
- <input type="file" id="planbestand" accept=".gml,.xml,.zip" style="display:none">
- <div class="rij">
-  <button id="planknop">Kies gml-bestand...</button>
-  <button id="planwis">Wissen</button>
+
+ <div class="kaart">
+  <div class="kaartkop">2D &middot; BGT en Kadaster</div>
+  <div class="klein" style="margin:0 0 4px">Pen: leeg = standaard</div>
+  <div id="lagen">Lagen laden...</div>
+  <label class="optie"><input type="checkbox" id="stijl_2d" checked> <b>Kleuren per soort</b></label>
+  <label class="optie"><input type="checkbox" id="alleniveaus"> Ook viaducten en tunnels (boven en onder maaiveld)</label>
  </div>
- <div id="plannaam">Geen plan gekozen.</div>
- <label><input type="checkbox" id="planteksten" checked> Maatvoering (bouwhoogte e.d.) als tekst</label>
- <div id="planinfo"></div>
- <div class="klein" style="margin:8px 0 2px"><b>Kleuren per soort</b></div>
- <label class="klein" style="display:block;margin:2px 0"><input type="checkbox" id="stijl_2d" checked> 2D-vullingen kleuren op functie en fysiek voorkomen (BGT)</label>
- <label class="klein" style="display:block;margin:2px 0"><input type="checkbox" id="stijl_verfijnd" checked> 2D-vlakken over lagen per soort verdelen (bijvoorbeeld BGT_wegdeel_fietspad)</label>
- <label class="klein" style="display:block;margin:2px 0"><input type="checkbox" id="stijl_3d" checked> 3D-terrein en gebouwen: een eigen oppervlak per soort</label>
- <div class="rij" style="margin:2px 0 6px">
-  <button id="stijl_open" class="compact" title="Opent het bestand met de kleuren per soort (wordt aangemaakt als het er nog niet is) in je teksteditor">Stijlbestand openen</button>
-  <button id="stijl_bijwerken" class="compact" title="Vult je stijlbestand aan met nieuwe regels en deellagen uit de standaardtabel, zonder je eigen kleuren te veranderen (er komt een kopie stijlen.json.bak)">Stijlbestand bijwerken</button>
-  <button id="stijl_herstel" class="compact" title="Verwijdert je eigen stijlbestand: daarna geldt weer de standaardtabel">Standaardstijlen herstellen</button>
+
+ <div class="kaart">
+  <div class="kaartkop">3D &middot; PDOK 3D Basisvoorziening</div>
+  <div class="hoogterij">
+   <div><b>Hoogtes</b><div class="klein" style="margin:0">geldt voor terrein, gebouwen en bomen</div></div>
+   <div class="segment" role="radiogroup" aria-label="Hoogtes">
+    <label><input type="radio" name="hoogte" id="hoogte_bron" value="bron" checked><span title="De hoogtes in NAP zoals de 3D Basisvoorziening ze geeft">Volgens NAP</span></label>
+    <label><input type="radio" name="hoogte" id="hoogte_nul" value="nul"><span title="Vlak: de bovenkant van het terrein en de onderkant van gebouwen en bomen op 0 m">Vlak (0 m)</span></label>
+   </div>
+  </div>
+  <div class="raster2">
+   <label><input type="checkbox" id="drie_gebouwen"> Gebouwen (LoD 2.2)</label>
+   <label><input type="checkbox" id="drie_terrein"> Terrein</label>
+   <label><input type="checkbox" id="drie_scheidingen"> Scheidingen</label>
+   <label><input type="checkbox" id="drie_bomen"> Bomen</label>
+  </div>
+  <div id="sub3d" class="sub" style="display:none">
+   <div id="sub_terrein" style="display:none">
+    <label class="klein" style="display:block;margin:2px 0"><input type="checkbox" id="drie_dekken" checked> Terrein: viaducten en bruggen meenemen (als dun dek)</label>
+   </div>
+   <div id="sub_bomen" style="display:none">
+    <div class="klein" style="margin:4px 0 2px">Bomen: bibliotheekobject</div>
+    <div style="position:relative">
+     <input type="text" id="drie_boomobject" value="Boom stedenbouw 02" placeholder="Zoek een bibliotheekobject, bijvoorbeeld boom" autocomplete="off">
+     <div id="boomlijst" style="display:none;position:absolute;left:0;right:0;z-index:30;max-height:190px;overflow:auto;background:#fff;border:1px solid #888;box-shadow:0 3px 8px rgba(0,0,0,.3)"></div>
+    </div>
+    <div id="boomstatus" class="klein" style="margin:2px 0 2px"></div>
+   </div>
+  </div>
+  <label class="optie"><input type="checkbox" id="stijl_3d" checked> <b>Kleuren per soort</b></label>
+  <details id="geavanceerd3d">
+   <summary>Geavanceerd (onderkant, naden)</summary>
+   <div class="rij" style="margin:6px 0;align-items:center">
+    <label class="klein" for="drie_skirt" style="flex:0 0 auto">Onderkant:</label>
+    <select id="drie_skirt" style="flex:1 1 auto;min-width:0"><option value="volume" selected>als volume (massief)</option><option value="zijvlakken">met zijvlakken</option><option value="oppervlak">alleen het bovenvlak</option></select>
+    <input type="text" id="drie_diepte" value="1" title="Diepte van de onderkant onder het laagste punt, in meter" style="flex:0 0 52px;width:52px"> <span class="klein">m</span>
+   </div>
+   <label class="klein" style="display:block;margin:2px 0">Naden: hoogteverschillen tot <input type="text" id="drie_naadmax" value="10" title="Meshes die elkaar raken, worden op hun rand gelijk gemaakt als het hoogteverschil kleiner is dan dit (in centimeters). Een groter verschil blijft zoals in de bron (een stoeprand, kade of talud)." style="width:40px"> cm gelijktrekken; grotere stappen blijven zoals in de bron</label>
+  </details>
+  <div class="klein">Eerste keer ophalen kan een minuut duren.</div>
  </div>
- <button id="importeer">Importeren in Archicad</button>
- <div id="status">Nog geen gebied gekozen.</div>
- <label class="klein" style="display:block;margin:8px 0 2px"><input type="checkbox" id="updatecontrole" checked> Bij het starten controleren op een nieuwe versie (via github.com; er wordt niets van jou verstuurd)</label>
- <progress id="balk" max="100" value="0" style="width:100%;display:none"></progress>
- <div id="timer" class="klein" style="display:none;margin:2px 0"></div>
- <button id="stop" style="display:none">Stop de import</button>
+
+ <div class="kaart">
+  <div class="kaartkop">Bestemmingsplan</div>
+  <input type="file" id="planbestand" accept=".gml,.xml,.zip" style="display:none">
+  <div class="rij">
+   <button id="planknop" style="margin:0">Kies gml-bestand...</button>
+   <button id="planwis" style="margin:0">Wissen</button>
+  </div>
+  <div id="plannaam">Geen plan gekozen.</div>
+  <label class="optie"><input type="checkbox" id="planteksten" checked disabled> Maatvoering (bouwhoogte e.d.) als tekst</label>
+  <div id="planinfo"></div>
+ </div>
+
+ <details id="hulp" class="kaart">
+  <summary class="kaartkop">Hulpmiddelen en instellingen</summary>
+  <div class="klein" style="margin:6px 0 2px">Meten (verandert niets)</div>
+  <div class="rij" style="margin:0 0 6px;flex-wrap:wrap">
+   <button id="drie_controle" class="compact" title="Vergelijkt het terrein in Archicad met de bron voor het getekende gebied en meldt wat ontbreekt">Terreincontrole</button>
+   <button id="drie_kwaliteit" class="compact" title="Meet voor het getekende gebied hoe goed het terrein in Archicad bij de bron past: hoogte, gaten, overlap en de kwaliteit van de driehoeken (verandert niets)">Meshkwaliteit meten</button>
+   <button id="drie_scheidingen_meten" class="compact" title="Meet voor het getekende gebied hoe de scheidingen (muren, hekken) op het terrein staan en op elkaar aansluiten, volgens de bron (verandert niets)">Scheidingen meten</button>
+   <button id="drie_soorten" class="compact" title="Telt voor het getekende gebied welke combinaties van BGT-eigenschappen (functie, fysiek voorkomen, plus-fysiek voorkomen) er in de 2D- en de 3D-bron voorkomen, met aantallen en oppervlakte (verandert niets)">Soorten meten</button>
+  </div>
+  <div class="klein" style="margin:6px 0 2px">Opruimen</div>
+  <div class="rij" style="margin:0 0 6px">
+   <button id="drie_wis" class="compact" title="Verwijdert alle meshes op de PDOK-terreinlagen (Ongedaan maken in Archicad brengt ze terug)">Terrein wissen</button>
+  </div>
+  <div class="klein" style="margin:6px 0 2px">Stijlen (kleuren per soort)</div>
+  <div class="rij" style="margin:0 0 6px;flex-wrap:wrap">
+   <button id="stijl_open" class="compact" title="Opent het bestand met de kleuren per soort (wordt aangemaakt als het er nog niet is) in je teksteditor">Stijlbestand openen</button>
+   <button id="stijl_bijwerken" class="compact" title="Vult je stijlbestand aan met nieuwe regels en deellagen uit de standaardtabel, zonder je eigen kleuren te veranderen (er komt een kopie stijlen.json.bak)">Stijlbestand bijwerken</button>
+   <button id="stijl_herstel" class="compact" title="Verwijdert je eigen stijlbestand: daarna geldt weer de standaardtabel">Standaardstijlen herstellen</button>
+  </div>
+  <pre id="drie_uit" class="klein" style="display:none;white-space:pre-wrap;max-height:260px;overflow:auto;background:#fff;border:1px solid #ccc;padding:6px;margin:0 0 6px"></pre>
+  <label class="klein" style="display:block;margin:8px 0 2px"><input type="checkbox" id="updatecontrole" checked> Bij het starten controleren op een nieuwe versie (via github.com; er wordt niets van jou verstuurd)</label>
+  <div class="klein"><a href="/test">Diagnose</a> &middot; <a href="#" id="resetinstellingen" title="Zet alle keuzes terug naar de standaardwaarden">Standaardinstellingen herstellen</a></div>
+ </details>
+ <div class="klein" style="margin:0 0 8px">versie __VERSIE__</div>
+
+ <div id="actie">
+  <button id="importeer" class="primair">Importeren in Archicad</button>
+  <div id="status"></div>
+  <progress id="balk" max="100" value="0" style="width:100%;display:none"></progress>
+  <div id="timer" class="klein" style="display:none;margin:2px 0"></div>
+  <button id="stop" style="display:none">Stop de import</button>
+ </div>
 </div>
 <div id="map"></div>
 <script>
@@ -1687,6 +1742,7 @@ L.tileLayer('https://service.pdok.nl/brt/achtergrondkaart/wmts/v2_0/standaard/EP
 
 let hoeken = [], vlak = null, gebied = null, planvlak = null, planToken = '';
 const status = document.getElementById('status');
+const gebiedInfo = document.getElementById('gebiedinfo');
 const doos = document.getElementById('lagen');
 const planBestand = document.getElementById('planbestand');
 const planNaam = document.getElementById('plannaam');
@@ -1803,14 +1859,29 @@ function nogNiet(ids) {                                          // een onderdee
   ids.forEach(id => {
     const e = document.getElementById(id); if (!e) return;
     if (e.type === 'checkbox') e.checked = false;
-    e.disabled = true;
+    e.disabled = true; e.dataset.nietbeschikbaar = '1';
     const l = e.closest ? e.closest('label') : null;
     if (l && !l.dataset.nogniet) { l.dataset.nogniet = '1'; l.style.opacity = '0.5'; l.appendChild(document.createTextNode(' (nog niet beschikbaar in de add-on)')); }
   });
 }
-if (!BESCHIKBAAR.gebouwen) nogNiet(['drie_gebouwen', 'drie_materiaal']);
-if (!BESCHIKBAAR.terrein) nogNiet(['drie_terrein', 'drie_naad', 'drie_overslaan', 'drie_skirt', 'drie_diepte', 'drie_dekken', 'drie_naadmax', 'drie_controle', 'drie_wis', 'drie_kwaliteit', 'drie_scheidingen_meten', 'drie_soorten']);
+if (!BESCHIKBAAR.gebouwen) nogNiet(['drie_gebouwen']);
+if (!BESCHIKBAAR.terrein) nogNiet(['drie_terrein', 'drie_skirt', 'drie_diepte', 'drie_dekken', 'drie_naadmax', 'drie_controle', 'drie_wis', 'drie_kwaliteit', 'drie_scheidingen_meten', 'drie_soorten']);
 if (!BESCHIKBAAR.tekst) nogNiet(['planteksten']);
+// Subopties verschijnen pas als het vinkje erboven aan staat; de maatvoering van het plan kan pas als er een plan is gekozen.
+function werkSubopties() {
+  const t = document.getElementById('drie_terrein').checked, b = document.getElementById('drie_bomen').checked;
+  document.getElementById('sub_terrein').style.display = t ? 'block' : 'none';
+  document.getElementById('sub_bomen').style.display = b ? 'block' : 'none';
+  document.getElementById('sub3d').style.display = (t || b) ? 'block' : 'none';
+}
+['drie_terrein', 'drie_bomen'].forEach(id => document.getElementById(id).addEventListener('change', werkSubopties));
+function zetPlanTeksten() {
+  const e = document.getElementById('planteksten');
+  e.disabled = !planToken || e.dataset.nietbeschikbaar === '1';
+  const l = e.closest ? e.closest('label') : null;
+  if (l) l.style.opacity = e.disabled ? '0.55' : '1';
+}
+werkSubopties(); zetPlanTeksten();
 const MAX_ZIJDE = __MAX_ZIJDE__;
 const planInfo = document.getElementById('planinfo');
 const vinkjes = () => [...doos.querySelectorAll('input.laagvink')];
@@ -1877,7 +1948,7 @@ fetch('/lagen').then(r => r.json()).then(lijst => {
 }).catch(e => { doos.textContent = 'Lagen laden mislukt: ' + e; });
 
 function wisPlan() {
-  planToken = '';
+  planToken = ''; zetPlanTeksten();
   planBestand.value = '';
   planNaam.textContent = 'Geen plan gekozen.';
   planInfo.textContent = '';
@@ -1889,7 +1960,7 @@ document.getElementById('planwis').onclick = wisPlan;
 planBestand.onchange = async () => {
   const f = planBestand.files[0];
   if (!f) return;
-  planToken = '';
+  planToken = ''; zetPlanTeksten();
   if (planvlak) { map.removeLayer(planvlak); planvlak = null; }
   planNaam.textContent = f.name;
   if (f.size > MAX_PLAN_MB * 1024 * 1024) {
@@ -1901,7 +1972,7 @@ planBestand.onchange = async () => {
     const r = await fetch('/planupload?naam=' + encodeURIComponent(f.name), {method: 'POST', body: f});
     const d = await r.json();
     if (d.fout) { planInfo.textContent = d.fout; return; }
-    planToken = d.token;
+    planToken = d.token; zetPlanTeksten();
     const rand = [[d.xmin, d.ymin],[d.xmax, d.ymin],[d.xmax, d.ymax],[d.xmin, d.ymax]].map(naarLL);
     planvlak = L.polygon(rand, {color: '#0066cc', dashArray: '6 6', fill: false}).addTo(map);
     map.fitBounds(planvlak.getBounds());
@@ -1936,6 +2007,7 @@ function gebiedTekst(g) {
 }
 function wisGebied() {
   gebied = null; hoeken = [];
+  gebiedInfo.textContent = 'Nog geen gebied gekozen.';
   if (vlak) { map.removeLayer(vlak); vlak = null; }
   planOpslaan();
 }
@@ -1945,36 +2017,36 @@ map.on('mousedown', e => {
   wisGebied();
   slepen = {start: naarRD(e.latlng), eind: null};
   if (oe.preventDefault) oe.preventDefault();                  // geen tekst selecteren tijdens het slepen
-  status.textContent = 'Sleep naar de tegenoverliggende hoek en laat los.';
+  gebiedInfo.textContent = 'Sleep naar de tegenoverliggende hoek en laat los.';
 });
 map.on('mousemove', e => {
   if (!slepen) return;
   slepen.eind = naarRD(e.latlng);
   const g = rechthoekRD(slepen.start, slepen.eind);
   toonGebied(g);
-  status.textContent = gebiedTekst(g);
+  gebiedInfo.textContent = gebiedTekst(g);
 });
 function eindeSlepen() {
   if (!slepen) return;
   const s = slepen;
   slepen = null;
   zetTekenmodus(false);
-  if (!s.eind) { status.textContent = 'Sleep over de kaart om een gebied te tekenen.'; return; }
+  if (!s.eind) { gebiedInfo.textContent = 'Sleep over de kaart om een gebied te tekenen.'; return; }
   const g = rechthoekRD(s.start, s.eind);
   if (g.xmax - g.xmin < 2 || g.ymax - g.ymin < 2) {
     wisGebied();
-    status.textContent = 'Dat gebied is te klein; sleep een grotere rechthoek.';
+    gebiedInfo.textContent = 'Dat gebied is te klein; sleep een grotere rechthoek.';
     return;
   }
   gebied = g;
   toonGebied(g);
-  status.textContent = gebiedTekst(g);
+  gebiedInfo.textContent = gebiedTekst(g);
   planOpslaan();
 }
 window.addEventListener('mouseup', eindeSlepen);               // ook als je buiten de kaart loslaat
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
-  if (slepen) { slepen = null; wisGebied(); status.textContent = 'Tekenen geannuleerd.'; }
+  if (slepen) { slepen = null; wisGebied(); gebiedInfo.textContent = 'Tekenen geannuleerd.'; }
   zetTekenmodus(false);
 });
 tekenknop.onclick = () => zetTekenmodus(!tekenmodus);
@@ -1987,7 +2059,7 @@ document.getElementById('zoek').onclick = async () => {
     const d = await r.json();
     const m = d.response.docs[0].centroide_ll.match(/POINT\\(([-0-9.]+) ([-0-9.]+)\\)/);
     map.setView([parseFloat(m[2]), parseFloat(m[1])], 18);
-  } catch (e) { status.textContent = 'Adres niet gevonden.'; }
+  } catch (e) { gebiedInfo.textContent = 'Adres niet gevonden.'; }
 };
 
 // Een eigen bevestigingsvenster: confirm() werkt niet altijd in een ingebouwd browservenster (zoals het Archicad-palet).
@@ -2016,10 +2088,10 @@ document.getElementById('importeer').onclick = async () => {
   const lagen = aangevinkt.map(v => v.value);
   const plan = planToken;
   const gebouwen = document.getElementById('drie_gebouwen').checked;
-  const gebouwenmateriaal = document.getElementById('drie_materiaal').checked;
+  const gebouwenmateriaal = true;                                  // dak, muur en grondvlak krijgen altijd hun oppervlak
   const terrein = document.getElementById('drie_terrein').checked;
-  const terreinnaad = document.getElementById('drie_naad').checked;
-  const terreinoverslaan = document.getElementById('drie_overslaan').value;
+  const terreinnaad = true;                                        // de naadsluiting staat altijd aan
+  const terreinoverslaan = '';
   const terreinskirt = document.getElementById('drie_skirt').value;
   const terreindekken = document.getElementById('drie_dekken').checked;
   const naadmaxCm = parseFloat(String(document.getElementById('drie_naadmax').value).replace(',', '.'));
@@ -2028,7 +2100,8 @@ document.getElementById('importeer').onclick = async () => {
   const terreindiepte = parseFloat(String(document.getElementById('drie_diepte').value).replace(',', '.')) || 1;
   const bomen = document.getElementById('drie_bomen').checked;
   const scheidingen = document.getElementById('drie_scheidingen').checked;
-  const stijl2d = document.getElementById('stijl_2d').checked, stijl3d = document.getElementById('stijl_3d').checked, verfijnd2d = document.getElementById('stijl_verfijnd').checked;
+  const stijl2d = document.getElementById('stijl_2d').checked, stijl3d = document.getElementById('stijl_3d').checked;
+  const verfijnd2d = true;                                         // de 2D-vlakken staan altijd op lagen per soort
   const boomobject = document.getElementById('drie_boomobject').value;
   if (!lagen.length && !plan && !gebouwen && !terrein && !bomen && !scheidingen) {
     status.textContent = 'Vink minstens een laag, 3D-onderdeel of bestemmingsplan aan.';
@@ -2110,10 +2183,11 @@ function pasVeldenToe(o) {
   Object.keys(v).forEach(id => {
     if (INSTELLING_IDS.indexOf(id) < 0) return;                    // alleen velden die de pagina kent
     const e = document.getElementById(id);
-    if (!e || e.disabled) return;
+    if (!e || e.dataset.nietbeschikbaar) return;                 // alleen een onderdeel dat de add-on niet kent, slaan we over
     if (e.type === 'checkbox' || e.type === 'radio') e.checked = !!v[id]; else e.value = v[id];
   });
   if (v.drie_boomobject !== undefined) boomZoek(boomInvoer.value);
+  werkSubopties(); zetPlanTeksten();
 }
 function pasLagenToe(o) {
   if (!o) return;
@@ -2122,7 +2196,7 @@ function pasLagenToe(o) {
   const pt = document.getElementById('perceelteksten'); if (pt && o.velden && 'perceelteksten' in o.velden) pt.checked = !!o.velden.perceelteksten;
 }
 function pasGebiedToe(o) {
-  if (o && o.gebied && o.gebied.xmin !== undefined) { gebied = o.gebied; toonGebied(gebied); status.textContent = 'Vorig gebied teruggezet. ' + gebiedTekst(gebied); }
+  if (o && o.gebied && o.gebied.xmin !== undefined) { gebied = o.gebied; toonGebied(gebied); gebiedInfo.textContent = 'Vorig gebied teruggezet. ' + gebiedTekst(gebied); }
   if (o && o.kaart && isFinite(o.kaart.lat) && isFinite(o.kaart.lng)) map.setView([o.kaart.lat, o.kaart.lng], o.kaart.zoom || 12);
 }
 instellingen().then(o => { pasVeldenToe(o); pasGebiedToe(o); });

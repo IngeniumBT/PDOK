@@ -1,6 +1,6 @@
 # Openstaande punten en bevindingen (PDOK Import)
 
-Dit bestand legt vast wat er nog open staat en wat we hebben gemeten, zodat het later opgepakt kan worden. Bijgewerkt bij versie 0.17.4.
+Dit bestand legt vast wat er nog open staat en wat we hebben gemeten, zodat het later opgepakt kan worden. Bijgewerkt bij versie 0.20.0.
 
 ## Wat af is
 Kaart en palet, 2D-lagen (BGT, kadaster, bestemmingsplan), teksten, bomen (met zoekvak), 3D-gebouwen (LoD 2.2, met terugvalstappen en zoeken naar de kleinste groep driehoeken),
@@ -9,7 +9,9 @@ handleiding (Markdown en Word), meetinstrumenten (terreincontrole, meshkwaliteit
 
 ## Nieuwe wens: stijlen per soort (functie, fysiek voorkomen, plus-fysiek voorkomen)
 Idee: een stijltabel (regels met voorwaarden, een naam en een kleur) die zowel de 2D-vulkleur als het 3D-oppervlak bepaalt; de meest specifieke regel wint, zonder regel valt het terug op de kleur van de laag. Het bestand komt naast de instellingen te staan, zodat je kleuren kunt aanpassen zonder opnieuw te bouwen. 3D: per mesh een eigen oppervlak (`PDOK_<naam>`), alleen aangemaakt voor wat in het gebied voorkomt. Eerst toepassen op 2D en het terrein in 3D; scheidingen (op `bgt_type`) later.
-Stand: *Soorten meten* (0.17.5) en de stijltabel met een eerste palet (0.18.0, 2D en het terrein in 3D) zijn gebouwd. Nog te doen: het palet bijstellen op jouw gebruik, de scheidingen in 3D (op `bgt_type`), en zo nodig meer lagen (water, kunstwerken) zodra je gebieden daarvoor soorten laten zien.
+Stand: af en bevestigd door de gebruiker: *Soorten meten* (0.17.5), de stijltabel met palet voor 2D en terrein in 3D (0.18.0), gebouwkleuren met platte en hellende daken (0.18.1), oppervlakken in de map PDOK Import en 2D-lagen per soort (0.19.0), en het meegroeien van een oud stijlbestand met de knop *Stijlbestand bijwerken* (0.19.1).
+Palet (0.20.0): opnieuw ingedeeld volgens het goedgekeurde voorstel (een canvas met twee borden).
+Nog te doen: de scheidingen in 3D op `bgt_type` (muur, hek, kademuur) en zo nodig meer soorten (water, kunstwerken) zodra gebieden daarvoor waarden laten zien. Eventueel: de bovenkant van een stijlbestand een versie laten bijhouden zodat een nieuwe standaardkleur ook bij een eigen bestand kan worden aangeboden.
 
 ## Nog open, in de volgorde die is afgesproken
 1. **Meer Archicad-versies (27, 28, 30)**: bouwen voor die versies; alleen 29 is getest.
