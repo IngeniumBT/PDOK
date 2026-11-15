@@ -1041,7 +1041,7 @@ GSErrCode LoadLibraryPartDefaults (API_Element& element, API_ElementMemo& memo)
 
 // ---- CreateObjects {objectsData: [{libraryPartName, coordinates: {x, y, z}, dimensions?: {x, y, z}, floorIndex?, layerIndex?,
 //      angle?, id?}]}   z is een absolute hoogte; de add-on rekent die om naar de verdieping (floorIndex, standaard 0).
-class CreateObjectsCommand final : public Create2DCommand
+class CreateObjectsCommand : public Create2DCommand
 {
 public:
     virtual GS::String GetName () const override { return "CreateObjects"; }
@@ -1124,6 +1124,21 @@ protected:
         }
         return {};
     }
+};
+
+// ---- CreateLamps {lampsData: [...]}   Hetzelfde als CreateObjects, maar als Lamp-element: in Archicad hebben lampen (zoals een lantaarnpaal)
+//      hun eigen gereedschap. API_LampType is in de DevKit hetzelfde type als API_ObjectType (zo gebruikt Tapir het ook), dus alleen het
+//      elementtype en de namen verschillen.
+class CreateLampsCommand final : public CreateObjectsCommand
+{
+public:
+    virtual GS::String GetName () const override { return "CreateLamps"; }
+
+protected:
+    virtual const char*     ArrayField () const override { return "lampsData"; }
+    virtual const char*     UndoText () const override { return "PDOK Import: lampen plaatsen"; }
+    virtual API_ElemTypeID  TypeId () const override { return API_LampID; }
+    virtual GS::UniString   Description () const override { return "De lamp"; }
 };
 
 
@@ -1959,7 +1974,7 @@ public:
             if (ACAPI_LibraryPart_Get (&libPart) != NoError) {
                 continue;                       // bij een fout is libPart.location niet gereserveerd
             }
-            if (libPart.typeID == APILib_ObjectID && libPart.isPlaceable && !libPart.isTemplate) {
+            if ((libPart.typeID == APILib_ObjectID || libPart.typeID == APILib_LampID) && libPart.isPlaceable && !libPart.isTemplate) {
                 names (GS::UniString (libPart.docu_UName));
                 ++total;
             }
@@ -2211,6 +2226,7 @@ GSErrCode RegisterAll ()
     err |= Register<GetSurveyPointTransformationCommand> ();
     err |= Register<GetLibraryObjectNamesCommand> ();
     err |= Register<GetMeshSurfacesCommand> ();
+    err |= Register<CreateLampsCommand> ();
     return err;
 }
 

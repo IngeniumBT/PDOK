@@ -39,6 +39,11 @@ except ImportError:
     bomen = None
 
 try:
+    import lichtmasten  # lantaarnpalen uit de BGT als Lamp-element (lichtmasten.py naast kaart.py; gebruikt bomen.py voor de terreinhoogte)
+except ImportError:
+    lichtmasten = None
+
+try:
     import stijl  # kleur per soort (functie, fysiek voorkomen, plus-fysiek voorkomen); stijl.py naast kaart.py
 except ImportError:
     stijl = None
@@ -134,7 +139,7 @@ VERSIE = "onbekend"      # de motor zet dit uit versie.txt
 NAMESPACE = "PDOKImport"   # de opdrachten van de add-on zelf (niet meer van Tapir)
 
 # Wat de add-on al kan. Wat nog niet beschikbaar is, wordt in de pagina uitgeschakeld en overgeslagen.
-BESCHIKBAAR = {"tekst": True, "gebouwen": True, "terrein": True, "bomen": True}
+BESCHIKBAAR = {"tekst": True, "gebouwen": True, "terrein": True, "bomen": True, "lichtmasten": True}
 ADDON = True          # de motor draait in de add-on: de terreincode slaat de controles over die voor Tapir waren
 SKIRT_BEKEND = True   # de add-on zet skirtLevel rechtstreeks: een diepte onder het referentievlak (level)
 
@@ -1226,6 +1231,25 @@ def meld_voortgang_bomen(tekst, fractie=None):
 BOMEN_VOORTGANG = {"binnen": None}
 
 
+def importeer_lichtmasten_uit_venster(gebied, object_naam, vast_niveau=None):
+    if lichtmasten is None or bomen is None:
+        print("3D-lichtmasten overgeslagen: lichtmasten.py (met bomen.py, terrein.py en drie_d.py) staat niet naast kaart.py.")
+        return 0
+    if GEOREFERENTIE != "rd":
+        print('3D-lichtmasten overgeslagen: zet GEOREFERENTIE in kaart.py op "rd".')
+        return 0
+    print("\n=== 3D-lichtmasten ===")
+    try:
+        uitkomst = lichtmasten.plaats_lichtmasten(
+            sys.modules[__name__], gebied,
+            {"object": (object_naam or "").strip() or lichtmasten.STANDAARD_OBJECT, "z": vast_niveau},
+            voortgang=meld_voortgang_bomen, stop=moet_stoppen)
+        return uitkomst["gelukt"]
+    except Exception as fout:
+        print(f"3D-lichtmasten mislukt: {fout}")
+        return 0
+
+
 def importeer_terrein_uit_venster(gebied, naadsluiting=True, overslaan="", skirt=None, diepte=None, dekken=True, vlak=None, naadmax=None, stijlen=False):
     if terrein is None:
         print("3D-terrein overgeslagen: terrein.py ontbreekt.")
@@ -1298,6 +1322,14 @@ def importeer(aanvraag):
             if gevonden is None:
                 raise RuntimeError(f"Het bibliotheekobject '{naam}' staat niet in de geladen bibliotheek. Zoek het in het vak bij de bomen en kies een naam uit de lijst.")
             aanvraag = dict(aanvraag, boomobject=gevonden)          # met de hoofdletters zoals de bibliotheek ze heeft
+    if aanvraag.get("lichtmasten"):
+        naam = (aanvraag.get("lichtobject") or "").strip() or (lichtmasten.STANDAARD_OBJECT if lichtmasten is not None else "")
+        bekend = bibliotheek_namen()
+        if bekend is not None:
+            gevonden = BIBLIOTHEEK["klein"].get(naam.casefold())
+            if gevonden is None:
+                raise RuntimeError(f"Het bibliotheekobject '{naam}' staat niet in de geladen bibliotheek. Zoek de lamp in het vak bij de lichtmasten en kies een naam uit de lijst.")
+            aanvraag = dict(aanvraag, lichtobject=gevonden)
     laad_projectlocatie()                       # het Survey Point: bepaalt hoe RD naar het project wordt omgerekend (nu uit)
     if PROJECTLOCATIE_GEBRUIKEN:
         print(PROJECT["tekst"])
@@ -1307,7 +1339,8 @@ def importeer(aanvraag):
         raise ValueError(f"Gebied te groot, maximaal {MAX_ZIJDE} x {MAX_ZIJDE} meter.")
     onderdelen = [n for n, aan in (("3D-gebouwen", aanvraag.get("gebouwen")), ("3D-terrein", aanvraag.get("terrein")),
                                    ("3D-scheidingen", aanvraag.get("scheidingen")),
-                                   ("3D-bomen", aanvraag.get("bomen")), ("bestemmingsplan", aanvraag.get("plan")),
+                                   ("3D-bomen", aanvraag.get("bomen")), ("3D-lichtmasten", aanvraag.get("lichtmasten")),
+                                   ("bestemmingsplan", aanvraag.get("plan")),
                    ("2D-lagen", aanvraag.get("lagen")))
                   if aan]
     stap = {"i": -1}
@@ -1370,6 +1403,13 @@ def _importeer_onderdelen(aanvraag, begin, binnen, tijd, gebied):
             totaal += tijd("3D-bomen", lambda: _importeer(aanvraag, "bomen"))
         finally:
             BOMEN_VOORTGANG["binnen"] = None
+    if aanvraag.get("lichtmasten") and not moet_stoppen():
+        begin("3D-lichtmasten")
+        BOMEN_VOORTGANG["binnen"] = binnen
+        try:
+            totaal += tijd("3D-lichtmasten", lambda: _importeer(aanvraag, "lichtmasten"))
+        finally:
+            BOMEN_VOORTGANG["binnen"] = None
     if (aanvraag.get("lagen") or aanvraag.get("plan")) and not moet_stoppen():
         with PlattegrondActief():
             if aanvraag.get("plan"):
@@ -1409,6 +1449,9 @@ def _importeer(aanvraag, deel="alles"):
     if deel == "scheidingen":
         return importeer_gebouwen_uit_venster(
             (x_min, y_min, x_max, y_max), True, aanvraag.get("hoogtemodus") == "nul", "scheidingen")
+    if deel == "lichtmasten":
+        niveau = 0.0 if aanvraag.get("hoogtemodus") == "nul" else None            # bij vlak terrein staan de lichtmasten op 0 m
+        return importeer_lichtmasten_uit_venster((x_min, y_min, x_max, y_max), aanvraag.get("lichtobject", ""), niveau)
     if deel == "bomen":
         niveau = 0.0 if aanvraag.get("hoogtemodus") == "nul" else None            # bij vlak terrein staan de bomen op 0 m
         return importeer_bomen_uit_venster((x_min, y_min, x_max, y_max), aanvraag.get("boomobject", ""), niveau)
@@ -1659,6 +1702,7 @@ PAGINA = """<!DOCTYPE html>
    <label><input type="checkbox" id="drie_terrein"> Terrein</label>
    <label><input type="checkbox" id="drie_scheidingen"> Scheidingen</label>
    <label><input type="checkbox" id="drie_bomen"> Bomen</label>
+   <label><input type="checkbox" id="drie_lichtmasten"> Lichtmasten</label>
   </div>
   <div id="sub3d" class="sub" style="display:none">
    <div id="sub_terrein" style="display:none">
@@ -1671,6 +1715,14 @@ PAGINA = """<!DOCTYPE html>
      <div id="boomlijst" style="display:none;position:absolute;left:0;right:0;z-index:30;max-height:190px;overflow:auto;background:#fff;border:1px solid #888;box-shadow:0 3px 8px rgba(0,0,0,.3)"></div>
     </div>
     <div id="boomstatus" class="klein" style="margin:2px 0 2px"></div>
+   </div>
+   <div id="sub_lichtmasten" style="display:none">
+    <div class="klein" style="margin:4px 0 2px">Lichtmasten: lamp uit de bibliotheek</div>
+    <div style="position:relative">
+     <input type="text" id="drie_lichtobject" value="Lantaarnpaal 04" placeholder="Zoek een lamp, bijvoorbeeld lantaarn" autocomplete="off">
+     <div id="lamplijst" style="display:none;position:absolute;left:0;right:0;z-index:30;max-height:190px;overflow:auto;background:#fff;border:1px solid #888;box-shadow:0 3px 8px rgba(0,0,0,.3)"></div>
+    </div>
+    <div id="lampstatus" class="klein" style="margin:2px 0 2px"></div>
    </div>
   </div>
   <label class="optie"><input type="checkbox" id="stijl_3d" checked> <b>Kleuren per soort</b></label>
@@ -1767,40 +1819,49 @@ zetSchaal(schaal);
 document.getElementById('kleiner').onclick = () => zetSchaal(schaal - 0.1);
 document.getElementById('groter').onclick = () => zetSchaal(schaal + 0.1);
 const BESCHIKBAAR = __BESCHIKBAAR__;
-// Het zoekvak bij de bomen: zoekt in de geladen bibliotheken van Archicad terwijl je typt.
-const boomInvoer = document.getElementById('drie_boomobject'), boomLijst = document.getElementById('boomlijst'), boomStatus = document.getElementById('boomstatus');
-let boomTimer = null, boomVolgnr = 0;
-async function boomZoek(vraag) {
-  const nr = ++boomVolgnr;
-  let d;
-  try { d = await (await fetch('/bibliotheek?q=' + encodeURIComponent(vraag))).json(); }
-  catch (e) { boomStatus.textContent = 'De bibliotheek kon niet worden opgehaald.'; boomStatus.style.color = '#b00020'; return; }
-  if (nr !== boomVolgnr) return;                                  // een nieuwere zoekopdracht is al gestart
-  boomLijst.innerHTML = '';
-  if (!d.beschikbaar) {
-    boomLijst.style.display = 'none';
-    boomStatus.textContent = 'De bibliotheek kon niet worden gelezen (is de add-on bijgewerkt?). Typ de naam zelf in.';
-    boomStatus.style.color = '#b00020'; return;
+// Het zoekvak bij de bomen en de lichtmasten: zoekt in de geladen bibliotheken van Archicad terwijl je typt.
+function maakZoekvak(invoer, lijstEl, statusEl) {
+  let volgnr = 0, timer = null;
+  async function zoek(vraag) {
+    const nr = ++volgnr;
+    let d;
+    try { d = await (await fetch('/bibliotheek?q=' + encodeURIComponent(vraag))).json(); }
+    catch (e) { statusEl.textContent = 'De bibliotheek kon niet worden opgehaald.'; statusEl.style.color = '#b00020'; return; }
+    if (nr !== volgnr) return;                                    // een nieuwere zoekopdracht is al gestart
+    lijstEl.innerHTML = '';
+    if (!d.beschikbaar) {
+      lijstEl.style.display = 'none';
+      statusEl.textContent = 'De bibliotheek kon niet worden gelezen (is de add-on bijgewerkt?). Typ de naam zelf in.';
+      statusEl.style.color = '#b00020'; return;
+    }
+    d.resultaten.forEach(naam => {
+      const it = document.createElement('div');
+      it.textContent = naam; it.style.cssText = 'padding:3px 6px;cursor:pointer;font-size:12px;border-bottom:1px solid #eee';
+      it.onmousedown = ev => { if (ev && ev.preventDefault) ev.preventDefault(); invoer.value = naam; lijstEl.style.display = 'none';
+                               statusEl.textContent = 'Gekozen: ' + naam; statusEl.style.color = '#2e7d32'; };
+      lijstEl.appendChild(it);
+    });
+    lijstEl.style.display = d.resultaten.length ? 'block' : 'none';
+    const vraagLeeg = !String(vraag).trim();
+    statusEl.textContent = d.exact ? 'Dit object staat in de bibliotheek.' : vraagLeeg ? d.aantal_totaal.toLocaleString('nl-NL') + ' objecten in de bibliotheek'
+      : d.aantal ? d.aantal.toLocaleString('nl-NL') + ' gevonden (van ' + d.aantal_totaal.toLocaleString('nl-NL') + ' objecten); kies er een'
+      : 'Geen bibliotheekobject gevonden met deze naam.';
+    statusEl.style.color = d.exact ? '#2e7d32' : (!vraagLeeg && !d.aantal ? '#b00020' : '#555');
   }
-  d.resultaten.forEach(naam => {
-    const it = document.createElement('div');
-    it.textContent = naam; it.style.cssText = 'padding:3px 6px;cursor:pointer;font-size:12px;border-bottom:1px solid #eee';
-    it.onmousedown = ev => { if (ev && ev.preventDefault) ev.preventDefault(); boomInvoer.value = naam; boomLijst.style.display = 'none';
-                             boomStatus.textContent = 'Gekozen: ' + naam; boomStatus.style.color = '#2e7d32'; };
-    boomLijst.appendChild(it);
-  });
-  boomLijst.style.display = d.resultaten.length ? 'block' : 'none';
-  const vraagLeeg = !String(vraag).trim();
-  boomStatus.textContent = d.exact ? 'Dit object staat in de bibliotheek.' : vraagLeeg ? d.aantal_totaal.toLocaleString('nl-NL') + ' objecten in de bibliotheek'
-    : d.aantal ? d.aantal.toLocaleString('nl-NL') + ' gevonden (van ' + d.aantal_totaal.toLocaleString('nl-NL') + ' objecten); kies er een'
-    : 'Geen bibliotheekobject gevonden met deze naam.';
-  boomStatus.style.color = d.exact ? '#2e7d32' : (!vraagLeeg && !d.aantal ? '#b00020' : '#555');
+  invoer.oninput = () => { clearTimeout(timer); timer = setTimeout(() => zoek(invoer.value), 200); };
+  invoer.onfocus = () => zoek(invoer.value);
+  invoer.onblur = () => setTimeout(() => { lijstEl.style.display = 'none'; }, 150);
+  invoer.onkeydown = ev => { if (ev && ev.key === 'Escape') lijstEl.style.display = 'none'; };
+  return zoek;
 }
-boomInvoer.oninput = () => { clearTimeout(boomTimer); boomTimer = setTimeout(() => boomZoek(boomInvoer.value), 200); };
-boomInvoer.onfocus = () => boomZoek(boomInvoer.value);
-boomInvoer.onblur = () => setTimeout(() => { boomLijst.style.display = 'none'; }, 150);
-boomInvoer.onkeydown = ev => { if (ev && ev.key === 'Escape') boomLijst.style.display = 'none'; };
-boomZoek(boomInvoer.value);                                       // meteen controleren of de standaardnaam bestaat
+const boomInvoer = document.getElementById('drie_boomobject'), boomLijst = document.getElementById('boomlijst'), boomStatus = document.getElementById('boomstatus');
+const zoekBoom = maakZoekvak(boomInvoer, boomLijst, boomStatus);
+function boomZoek(vraag) { return zoekBoom(vraag); }
+const lampInvoer = document.getElementById('drie_lichtobject'), lampLijst = document.getElementById('lamplijst'), lampStatus = document.getElementById('lampstatus');
+const zoekLamp = maakZoekvak(lampInvoer, lampLijst, lampStatus);
+function lampZoek(vraag) { return zoekLamp(vraag); }
+boomZoek(boomInvoer.value);                                       // meteen controleren of de standaardnamen bestaan
+lampZoek(lampInvoer.value);
 // De timer: hoe lang de import duurt, en daarna hoe lang elk onderdeel kostte.
 const timerEl = document.getElementById('timer');
 let timerTik = null, timerT0 = 0;
@@ -1869,14 +1930,16 @@ function nogNiet(ids) {                                          // een onderdee
 if (!BESCHIKBAAR.gebouwen) nogNiet(['drie_gebouwen']);
 if (!BESCHIKBAAR.terrein) nogNiet(['drie_terrein', 'drie_skirt', 'drie_diepte', 'drie_dekken', 'drie_naadmax', 'drie_controle', 'drie_wis', 'drie_kwaliteit', 'drie_scheidingen_meten', 'drie_soorten']);
 if (!BESCHIKBAAR.tekst) nogNiet(['planteksten']);
+if (!BESCHIKBAAR.lichtmasten) nogNiet(['drie_lichtmasten', 'drie_lichtobject']);
 // Subopties verschijnen pas als het vinkje erboven aan staat; de maatvoering van het plan kan pas als er een plan is gekozen.
 function werkSubopties() {
-  const t = document.getElementById('drie_terrein').checked, b = document.getElementById('drie_bomen').checked;
+  const t = document.getElementById('drie_terrein').checked, b = document.getElementById('drie_bomen').checked, l = document.getElementById('drie_lichtmasten').checked;
   document.getElementById('sub_terrein').style.display = t ? 'block' : 'none';
   document.getElementById('sub_bomen').style.display = b ? 'block' : 'none';
-  document.getElementById('sub3d').style.display = (t || b) ? 'block' : 'none';
+  document.getElementById('sub_lichtmasten').style.display = l ? 'block' : 'none';
+  document.getElementById('sub3d').style.display = (t || b || l) ? 'block' : 'none';
 }
-['drie_terrein', 'drie_bomen'].forEach(id => document.getElementById(id).addEventListener('change', werkSubopties));
+['drie_terrein', 'drie_bomen', 'drie_lichtmasten'].forEach(id => document.getElementById(id).addEventListener('change', werkSubopties));
 function zetPlanTeksten() {
   const e = document.getElementById('planteksten');
   e.disabled = !planToken || e.dataset.nietbeschikbaar === '1';
@@ -2102,10 +2165,11 @@ document.getElementById('importeer').onclick = async () => {
   const terreindiepte = parseFloat(String(document.getElementById('drie_diepte').value).replace(',', '.')) || 1;
   const bomen = document.getElementById('drie_bomen').checked;
   const scheidingen = document.getElementById('drie_scheidingen').checked;
+  const lichtmasten = document.getElementById('drie_lichtmasten').checked, lichtobject = document.getElementById('drie_lichtobject').value;
   const stijl2d = document.getElementById('stijl_2d').checked, stijl3d = document.getElementById('stijl_3d').checked;
   const verfijnd2d = true;                                         // de 2D-vlakken staan altijd op lagen per soort
   const boomobject = document.getElementById('drie_boomobject').value;
-  if (!lagen.length && !plan && !gebouwen && !terrein && !bomen && !scheidingen) {
+  if (!lagen.length && !plan && !gebouwen && !terrein && !bomen && !scheidingen && !lichtmasten) {
     status.textContent = 'Vink minstens een laag, 3D-onderdeel of bestemmingsplan aan.';
     return;
   }
@@ -2130,7 +2194,7 @@ document.getElementById('importeer').onclick = async () => {
   }
   status.textContent = 'Bezig met importeren van ' + lagen.length + ' lagen' +
     (plan ? ', het bestemmingsplan' : '') + (gebouwen ? ', 3D-gebouwen' : '') + (terrein ? ', 3D-terrein' : '') +
-    (bomen ? ', bomen' : '') +
+    (bomen ? ', bomen' : '') + (lichtmasten ? ', lichtmasten' : '') +
     '... (kijk in de terminal voor de details)';
   const knop = document.getElementById('importeer'), balk = document.getElementById('balk');
   const stopknop = document.getElementById('stop');
@@ -2139,7 +2203,7 @@ document.getElementById('importeer').onclick = async () => {
     const r = await fetch('/import', {method: 'POST',
       body: JSON.stringify({...gebied, lagen, alleniveaus, pennen, plan, planteksten, perceelteksten,
                             gebouwen, gebouwenmateriaal, terrein, terreinnaad, terreinoverslaan, terreinskirt, terreindiepte, terreindekken, terreinnaadmax, hoogtemodus,
-                            bomen, boomobject, scheidingen, stijl2d, stijl3d, verfijnd2d})});
+                            bomen, boomobject, scheidingen, lichtmasten, lichtobject, stijl2d, stijl3d, verfijnd2d})});
     const d = await r.json();
     if (d.fout) { status.textContent = 'Fout: ' + d.fout; return; }
     timerStart();
@@ -2189,6 +2253,7 @@ function pasVeldenToe(o) {
     if (e.type === 'checkbox' || e.type === 'radio') e.checked = !!v[id]; else e.value = v[id];
   });
   if (v.drie_boomobject !== undefined) boomZoek(boomInvoer.value);
+  if (v.drie_lichtobject !== undefined) lampZoek(lampInvoer.value);
   werkSubopties(); zetPlanTeksten();
 }
 function pasLagenToe(o) {

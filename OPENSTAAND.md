@@ -1,6 +1,6 @@
 # Openstaande punten en bevindingen (PDOK Import)
 
-Dit bestand legt vast wat er nog open staat en wat we hebben gemeten, zodat het later opgepakt kan worden. Bijgewerkt bij versie 0.20.0.
+Dit bestand legt vast wat er nog open staat en wat we hebben gemeten, zodat het later opgepakt kan worden. Bijgewerkt bij versie 0.21.0.
 
 ## Wat af is
 Kaart en palet, 2D-lagen (BGT, kadaster, bestemmingsplan), teksten, bomen (met zoekvak), 3D-gebouwen (LoD 2.2, met terugvalstappen en zoeken naar de kleinste groep driehoeken),
@@ -12,6 +12,19 @@ Idee: een stijltabel (regels met voorwaarden, een naam en een kleur) die zowel d
 Stand: af en bevestigd door de gebruiker: *Soorten meten* (0.17.5), de stijltabel met palet voor 2D en terrein in 3D (0.18.0), gebouwkleuren met platte en hellende daken (0.18.1), oppervlakken in de map PDOK Import en 2D-lagen per soort (0.19.0), en het meegroeien van een oud stijlbestand met de knop *Stijlbestand bijwerken* (0.19.1).
 Palet (0.20.0): opnieuw ingedeeld volgens het goedgekeurde voorstel (een canvas met twee borden).
 Nog te doen: de scheidingen in 3D op `bgt_type` (muur, hek, kademuur) en zo nodig meer soorten (water, kunstwerken) zodra gebieden daarvoor waarden laten zien. Eventueel: de bovenkant van een stijlbestand een versie laten bijhouden zodat een nieuwe standaardkleur ook bij een eigen bestand kan worden aangeboden.
+
+## Ideeën voor later (nog niet ingepland)
+Uit de verkenning van de BGT-collecties bij PDOK (puntobjecten, vegetatie en labels). Eerst een overzicht van wat er is; wat gewenst is, staat hieronder.
+
+1. **Lichtmasten in 3D: gebouwd in 0.21.0** (als Lamp-element, standaard *Lantaarnpaal 04*; wacht op de test van de gebruiker). Eventueel later ook andere palen en masten (`mast`), op dezelfde manier.
+2. **Straatnamen als tekst.** Collectie `openbareruimtelabel`: labelpunten met de straatnaam en de hoek waaronder het label staat. Eventueel ook huisnummers (`pand_nummeraanduiding`).
+3. **Overige bouwwerken in 3D.** Overkappingen, open loodsen en vergelijkbare bouwwerken (collectie `overigbouwwerk`), en luifels, bordessen en toegangstrappen (collectie `gebouwinstallatie`). Uit te zoeken: waar de hoogte vandaan komt (de BGT heeft er geen; mogelijk de 3D Basisvoorziening, waar `overkapping` al als terreinobject voorkomt).
+4. **3D-hagen.** Collecties `vegetatieobject_lijn` en `vegetatieobject_vlak`, soort `haag`: als morph met een aangenomen hoogte.
+5. **Boomhoogte uit het AHN.** In de BGT hangt aan bomen geen soort, hoogte of kroon; alleen het soort (`boom` of `haag`) en registratiegegevens. Een hoogte zou kunnen worden afgeleid uit het AHN (oppervlakmodel min maaiveld; PDOK biedt het als WCS). Niet uitgeprobeerd.
+6. **Technisch: de BGT-API-basis.** PDOK noemt `api.pdok.nl/kadaster/bgt/ogc/v1` nu de canonieke basis; wij gebruiken nog `api.pdok.nl/lv/bgt/ogc/v1`. Dat werkt nu nog; bij een volgende versie omzetten.
+7. *Optioneel:* *Soorten meten* uitbreiden met puntobjecten, zodat je per gebied ziet welke soorten palen, putten, borden en meubilair er staan (nu telt het alleen de vlaklagen en de bomen).
+
+Aandachtspunt: bomen, palen en straatmeubilair zijn in de BGT zogenoemde plus-objecten (het BGT-type staat in de voorbeelden op *niet-bgt* en de soort in `plus_type`); ze worden door gemeenten niet overal bijgehouden. In sommige gebieden ontbreken ze dus in de bron.
 
 ## Nog open, in de volgorde die is afgesproken
 1. **Meer Archicad-versies (27, 28, 30)**: bouwen voor die versies; alleen 29 is getest.
