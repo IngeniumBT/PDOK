@@ -1,6 +1,6 @@
 # PDOK Import voor Archicad - handleiding voor proefgebruikers
 
-Versie 0.18.0 (proefversie). Deze add-on haalt gegevens van PDOK (de BGT, het kadaster, bestemmingsplannen en de 3D Basisvoorziening) op
+Versie 0.18.1 (proefversie). Deze add-on haalt gegevens van PDOK (de BGT, het kadaster, bestemmingsplannen en de 3D Basisvoorziening) op
 en zet ze in je Archicad-project: als lijnen en vlakken, als 3D-gebouwen, als terrein en als bomen.
 
 ## Wat heb je nodig
@@ -38,6 +38,8 @@ Het palet heeft rechtsboven **A-** en **A+** voor de tekstgrootte (de keuze word
 **Kleuren per soort.** De BGT kent per object een *functie*, een *fysiek voorkomen* en een *plus-fysiek voorkomen* (bijvoorbeeld rijbaan, open verharding, betonstraatstenen). Met *Kleuren per soort* krijgt elk 2D-vlak een kleur op grond daarvan, en krijgt elke terreinmesh in 3D een eigen oppervlak (`PDOK_weg_asfalt`, `PDOK_groen_heesters`, ...), zodat 2D en 3D bij elkaar passen. Zonder passende regel blijft de kleur van de laag (2D) of van het type (3D). De kleuren staan in een tabel met regels; de standaardtabel is gemaakt voor wat in je gebied voorkomt (wegen op materiaal, fietspad, voetpad, parkeervlak, gras, heesters, bosplantsoen, erf, berm).
 
 Een eigen tabel maak je met **Stijlbestand openen**: dat schrijft `%LOCALAPPDATA%\PDOKImport\stijlen.json` (de standaardtabel, als het bestand er nog niet is) en opent het in je teksteditor. Elke regel heeft een `naam`, een `kleur` ([rood, groen, blauw] van 0 tot 255) en voorwaarden: `laag` (bijvoorbeeld wegdeel), `functie`, `fysiek`, `plus` en `type` (een voorwaarde past als de tekst erin voorkomt, dus `rijbaan` past bij *rijbaan lokale weg*), `alleen` (2d of 3d) en `prioriteit`. Past meer dan een regel, dan wint die met de hoogste prioriteit en daarna de meest specifieke. Verander je een kleur, importeer dan opnieuw: de 2D-lagen worden opnieuw getekend en de oppervlakken van de stijlen krijgen bij het importeren de nieuwe kleur. Met **Standaardstijlen herstellen** verwijder je je eigen bestand. Bestaande vlakken en meshes veranderen niet vanzelf: wis ze eerst (het terrein met *Terrein wissen*). Gebruik **Soorten meten** om te zien welke waarden in jouw gebied voorkomen.
+
+**Gebouwen.** In 2D zijn de gebouwen lichtgrijs, lichter dan de wegdelen. In 3D krijgen **platte daken** (een dakvlak dat minder dan 10 graden van horizontaal afwijkt) het oppervlak `PDOK_dak_plat` (grijs) en hellende daken `PDOK_dak`; muren en grondvlak houden `PDOK_muur` en `PDOK_grondvlak`. Met *Kleuren per soort* aan komen de kleuren van deze vier uit de stijltabel (laag `gebouw`, het `type` is `dak`, `dak_plat`, `muur` of `grondvlak`), zodat je ze zelf kunt aanpassen. Gebouwen die al op de laag `3D_gebouwen` staan, worden bij een volgende import overgeslagen: verwijder ze eerst (selecteer de elementen op die laag en wis ze) als je ze met de nieuwe oppervlakken wilt.
 
 **Je keuzes worden onthouden.** Het palet bewaart de aangevinkte lagen en pennummers, de 3D-opties, de naam van het boomobject, het laatst getekende gebied en de positie van de kaart, en zet ze terug als je het palet weer opent, ook na een update van de add-on. De keuzes staan in `%LOCALAPPDATA%\PDOKImport\instellingen.json`. Met **standaardinstellingen** onderaan in het palet zet je alles terug naar de beginwaarden. Het plan (GML-bestand) wordt niet onthouden.
 

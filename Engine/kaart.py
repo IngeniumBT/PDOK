@@ -101,9 +101,9 @@ CONTOURPEN = 1  # randpen van vlakken als er in het venster geen pen is gekozen
 # Vulkleur (rood, groen, blauw van 0-255) per BGT-laag met vlakken.
 # Lagen die hier niet staan houden de standaardkleur van Archicad.
 KLEUREN = {
-    "pand": (214, 120, 110),
-    "gebouwinstallatie": (200, 140, 125),
-    "overigbouwwerk": (190, 150, 140),
+    "pand": (232, 232, 236),               # lichtgrijs, lichter dan de wegdelen
+    "gebouwinstallatie": (218, 218, 224),
+    "overigbouwwerk": (224, 224, 230),
     "wegdeel": (200, 200, 200),
     "ondersteunendwegdeel": (170, 175, 150),
     "weginrichtingselement_vlak": (240, 200, 100),
@@ -1180,7 +1180,7 @@ class PlattegrondActief:
         return False
 
 
-def importeer_gebouwen_uit_venster(gebied, materiaal, op_nul=False, soort="gebouwen"):
+def importeer_gebouwen_uit_venster(gebied, materiaal, op_nul=False, soort="gebouwen", stijlen=False):
     if drie_d is None:
         print("3D-gebouwen overgeslagen: drie_d.py ontbreekt.")
         return 0
@@ -1192,7 +1192,7 @@ def importeer_gebouwen_uit_venster(gebied, materiaal, op_nul=False, soort="gebou
         return 0
     print("\n=== 3D-gebouwen ===")
     try:
-        return drie_d.importeer_gebouwen(sys.modules[__name__], gebied, materiaal, op_nul, soort)
+        return drie_d.importeer_gebouwen(sys.modules[__name__], gebied, materiaal, op_nul, soort, stijlen)
     except Exception as fout:
         print("3D-gebouwen importeren mislukt:", fout)
         return 0
@@ -1400,7 +1400,8 @@ def _importeer(aanvraag, deel="alles"):
             aanvraag["plan"], (x_min, y_min, x_max, y_max), bool(aanvraag.get("planteksten", True)))
     if deel == "gebouwen":
         return importeer_gebouwen_uit_venster(
-            (x_min, y_min, x_max, y_max), bool(aanvraag.get("gebouwenmateriaal", True)), aanvraag.get("hoogtemodus") == "nul")
+            (x_min, y_min, x_max, y_max), bool(aanvraag.get("gebouwenmateriaal", True)), aanvraag.get("hoogtemodus") == "nul",
+            "gebouwen", bool(aanvraag.get("stijl3d")))
     if deel == "scheidingen":
         return importeer_gebouwen_uit_venster(
             (x_min, y_min, x_max, y_max), True, aanvraag.get("hoogtemodus") == "nul", "scheidingen")

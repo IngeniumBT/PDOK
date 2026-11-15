@@ -30,12 +30,12 @@ STANDAARD_REGELS = [
     {"naam": "weg_asfalt", "kleur": [88, 88, 94], "laag": "wegdeel", "functie": "rijbaan", "plus": "asfalt"},
     {"naam": "weg_beton", "kleur": [172, 172, 168], "laag": "wegdeel", "functie": "rijbaan", "plus": "beton"},
     {"naam": "weg_straatsteen", "kleur": [146, 138, 134], "laag": "wegdeel", "functie": "rijbaan", "plus": "straatsten"},
-    {"naam": "weg_klinker", "kleur": [168, 108, 92], "laag": "wegdeel", "functie": "rijbaan", "plus": "klinker"},
+    {"naam": "weg_klinker", "kleur": [166, 124, 110], "laag": "wegdeel", "functie": "rijbaan", "plus": "klinker"},
     {"naam": "weg_rijbaan", "kleur": [104, 104, 110], "laag": "wegdeel", "functie": "rijbaan"},
     {"naam": "weg_parkeren", "kleur": [130, 130, 140], "laag": "wegdeel", "functie": "parkeervlak"},
     {"naam": "weg_fietspad", "kleur": [196, 104, 92], "laag": "wegdeel", "functie": "fietspad"},
     {"naam": "weg_trap", "kleur": [165, 165, 165], "laag": "wegdeel", "functie": "voetpad op trap", "prioriteit": 1},
-    {"naam": "weg_voetpad_klinker", "kleur": [176, 110, 90], "laag": "wegdeel", "functie": "voetpad", "plus": "klinker"},
+    {"naam": "weg_voetpad_klinker", "kleur": [178, 128, 112], "laag": "wegdeel", "functie": "voetpad", "plus": "klinker"},
     {"naam": "weg_voetpad_tegels", "kleur": [208, 202, 190], "laag": "wegdeel", "functie": "voetpad", "plus": "tegel"},
     {"naam": "weg_voetpad_straatsteen", "kleur": [186, 176, 166], "laag": "wegdeel", "functie": "voetpad", "plus": "straatsten"},
     {"naam": "weg_voetpad", "kleur": [196, 190, 180], "laag": "wegdeel", "functie": "voetpad"},
@@ -60,8 +60,17 @@ STANDAARD_REGELS = [
     # ---- ondersteunend wegdeel (bermen e.d.)
     {"naam": "berm", "kleur": [170, 185, 135], "laag": "ondersteunendwegdeel", "functie": "berm"},
     {"naam": "verkeerseiland", "kleur": [200, 190, 140], "laag": "ondersteunendwegdeel", "functie": "verkeerseiland"},
-    # ---- de grond onder een gebouw (alleen in 3D; in 2D heeft het pand zijn eigen kleur)
+    # ---- de grond onder een gebouw (alleen in 3D)
     {"naam": "pand_grond", "kleur": [185, 178, 172], "laag": "pand", "alleen": "3d"},
+    # ---- gebouwen in 2D: lichtgrijs, lichter dan de wegdelen
+    {"naam": "pand", "kleur": [232, 232, 236], "laag": "pand", "alleen": "2d"},
+    {"naam": "gebouwinstallatie", "kleur": [218, 218, 224], "laag": "gebouwinstallatie", "alleen": "2d"},
+    {"naam": "overigbouwwerk", "kleur": [224, 224, 230], "laag": "overigbouwwerk", "alleen": "2d"},
+    # ---- gebouwen in 3D (laag "gebouw"; het type is de soort vlak): hellend dak, plat dak, muur en grondvlak
+    {"naam": "dak", "kleur": [140, 64, 51], "laag": "gebouw", "type": "dak", "alleen": "3d"},
+    {"naam": "dak_plat", "kleur": [128, 128, 134], "laag": "gebouw", "type": "dak_plat", "alleen": "3d"},
+    {"naam": "muur", "kleur": [217, 209, 194], "laag": "gebouw", "type": "muur", "alleen": "3d"},
+    {"naam": "grondvlak", "kleur": [128, 128, 128], "laag": "gebouw", "type": "grondvlak", "alleen": "3d"},
 ]
 
 # BGT-laag in 3D (de tabelnaam in de 3D-bron) -> de naam van de 2D-laag

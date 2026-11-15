@@ -73,7 +73,9 @@ OPPERVLAKKEN = {
     "dak": ("PDOK_dak", (0.55, 0.25, 0.20)),
     "muur": ("PDOK_muur", (0.85, 0.82, 0.76)),
     "grondvlak": ("PDOK_grondvlak", (0.50, 0.50, 0.50)),
+    "dak_plat": ("PDOK_dak_plat", (0.50, 0.50, 0.53)),          # een plat dak (zie PLAT_DAK_HOEK); "dak" is dan een hellend dak
 }
+PLAT_DAK_HOEK = 10.0        # graden: een dakvlak dat minder dan dit van horizontaal afwijkt, geldt als plat dak
 # CityJSON-vlaktype -> sleutel in OPPERVLAKKEN
 TYPE_NAAR_OPPERVLAK = {
     "RoofSurface": "dak", "OuterCeilingSurface": "dak",
@@ -98,6 +100,37 @@ PROFIEL = dict(PROFIELEN["gebouwen"], oppervlakken=None)       # het profiel van
 
 def laagnaam():
     return PROFIEL["laag"]
+
+
+STIJL_AAN = {"aan": False}      # de kleuren van de gebouwen uit de stijltabel (stijl.py) halen; zet importeer_gebouwen
+
+
+def gebouw_oppervlak_definities():
+    """De oppervlakken van de gebouwen: de standaardkleuren, of (met stijlen aan) de kleuren uit de stijltabel (laag 'gebouw'); die worden dan
+    bij elke import bijgewerkt, zodat een wijziging in stijlen.json direct meetelt."""
+    definities = dict(OPPERVLAKKEN)
+    if STIJL_AAN["aan"]:
+        try:
+            import stijl
+        except ImportError:
+            return definities
+        for sleutel, (naam, kleur) in OPPERVLAKKEN.items():
+            st = stijl.kies("gebouw", {"type": sleutel}, "3d")
+            if st:
+                definities[sleutel] = (naam, tuple(c / 255 for c in st["kleur"]), True)
+    return definities
+
+
+def is_plat_dak(wereld, ring):
+    """Is dit dakvlak (bijna) horizontaal? (de normaal wijkt minder dan PLAT_DAK_HOEK graden van verticaal af)"""
+    p = [wereld[i] for i in ring]
+    if len(p) < 3:
+        return False
+    n = newell_normaal(p)
+    lengte = math.sqrt(sum(c * c for c in n))
+    if lengte < 1e-12:
+        return False
+    return math.degrees(math.acos(min(1.0, abs(n[2]) / lengte))) < PLAT_DAK_HOEK
 
 
 def oppervlak_definitie(naam, kleur):
@@ -130,6 +163,8 @@ def zorg_voor_oppervlakken(k, bijwerken=False, definities=None):
     opdracht EnsureSurface van de add-on."""
     try:
         uit = {}
+        if definities is None and PROFIEL.get("enkel") == "pand":
+            definities = gebouw_oppervlak_definities()
         for sleutel, definitie in (definities or PROFIEL.get("oppervlakken") or OPPERVLAKKEN).items():
             naam, kleur = definitie[0], definitie[1]
             invoer = oppervlak_definitie(naam, kleur)
@@ -444,6 +479,8 @@ def bouw_lichaam(pand, lod, z_verschuiving=0.0, opp_ids=None, driehoeken=False, 
     gekozen = driehoeken if isinstance(driehoeken, (set, frozenset)) else None
     for n_vlak, (buiten, gaten, soort) in enumerate(vlakken):
         sleutel = TYPE_NAAR_OPPERVLAK.get(soort) or PROFIEL.get("standaard_opp")
+        if sleutel == "dak" and is_plat_dak(wereld, buiten):
+            sleutel = "dak_plat"                           # een plat dak krijgt een eigen oppervlak (grijs)
         soorten_teller[sleutel] += 1
         oppervlak_id = opp_ids[sleutel] if opp_ids and sleutel in opp_ids else None
         if len(buiten) > 3 or gaten:
@@ -927,7 +964,7 @@ def hoofd(argumenten):
     if any(k for k in soorten):
         print("   vlakken per type: " + ", ".join(f"{k or 'onbekend'} {v}" for k, v in soorten.most_common()))
         if not droog and opp:
-            print("   elk vlak krijgt het oppervlak van zijn type (dak, muur of grondvlak)")
+            print("   elk vlak krijgt het oppervlak van zijn type (hellend dak, plat dak, muur of grondvlak)")
     else:
         print("   de data vermeldt geen vlaktypen; er worden geen oppervlakken toegewezen")
     for g in gebouwen[:3]:
@@ -1279,7 +1316,7 @@ def teken(gebouwen, z_verschuiving, forceer=False, opp=None):
     return 0 if gelukt else 1
 
 
-def importeer_gebouwen(k, gebied, materiaal=True, op_nul=False, soort="gebouwen"):
+def importeer_gebouwen(k, gebied, materiaal=True, op_nul=False, soort="gebouwen", stijlen=False):
     """Voor het kaartvenster: haalt de gebouwen voor het gebied (xmin, ymin, xmax, ymax in RD) op en maakt ze
     aan als Morphs. k is de kaart-module. Geeft het aantal aangemaakte Morphs terug."""
     global KAART
@@ -1291,9 +1328,11 @@ def importeer_gebouwen(k, gebied, materiaal=True, op_nul=False, soort="gebouwen"
     if op_nul:
         argumenten.append("--op-nul")
     argumenten += ["--soort", soort]
+    STIJL_AAN["aan"] = bool(stijlen)
     try:
         hoofd(argumenten)
     finally:
+        STIJL_AAN["aan"] = False
         kies_profiel(["--soort", "gebouwen"])               # het volgende gebruik begint weer met de gebouwen
     return LAATSTE["gelukt"]
 
