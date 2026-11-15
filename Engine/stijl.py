@@ -25,6 +25,7 @@ import os
 import re
 
 BESTANDSNAAM = "stijlen.json"
+TABEL_VERSIE = 2             # de versie van de standaardtabel: 2 = met deellagen en de gebouwregels (0.19.0)
 
 # De standaardtabel. De kleuren zijn rood, groen, blauw van 0 tot 255.
 STANDAARD_REGELS = [
@@ -146,15 +147,28 @@ def laad():
             bron, eigen = lijst, True
         except (OSError, ValueError) as e:
             fout = f"{BESTANDSNAAM} is niet te lezen ({e}); de standaardtabel wordt gebruikt"
-    regels, overgeslagen = [], 0
+    regels, overgeslagen, geerfd = [], 0, 0
+    standaard_deel = {r["naam"]: r["deellaag"] for r in (_schoon(x) for x in STANDAARD_REGELS) if r and r.get("deellaag")}
     for r in bron:
         s = _schoon(r)
         if s:
+            # Een regel in een bestand van een eerdere versie kent de sleutel deellaag nog niet: die komt dan uit de standaardtabel.
+            # Staat de sleutel er wel (ook leeg), dan geldt wat jij hebt ingesteld.
+            if eigen and isinstance(r, dict) and "deellaag" not in r and s["naam"] in standaard_deel:
+                s["deellaag"] = standaard_deel[s["naam"]]
+                geerfd += 1
             regels.append(s)
         else:
             overgeslagen += 1
     if overgeslagen and eigen:
         fout = (fout + "; " if fout else "") + f"{overgeslagen} regels in {BESTANDSNAAM} zijn onvolledig en worden overgeslagen"
+    if eigen and geerfd:
+        fout = (fout + "; " if fout else "") + f"{geerfd} regels in {BESTANDSNAAM} hadden nog geen deellaag en hebben die uit de standaardtabel gekregen"
+    if eigen:
+        aanwezig = {r["naam"] for r in regels}
+        ontbreekt = [r["naam"] for r in (_schoon(x) for x in STANDAARD_REGELS) if r and r["naam"] not in aanwezig]
+        if ontbreekt:
+            fout = (fout + "; " if fout else "") + f"{BESTANDSNAAM} mist {len(ontbreekt)} regels uit de standaardtabel (zoals {', '.join(ontbreekt[:3])}); 'Stijlbestand bijwerken' voegt ze toe"
     _CACHE.update(pad=pad, tijd=tijd, regels=regels, fout=fout, eigen=eigen)
     return regels, eigen, fout
 
@@ -214,7 +228,7 @@ def schrijf_standaard():
     pad = bestand_pad()
     if not os.path.exists(pad):
         os.makedirs(os.path.dirname(pad), exist_ok=True)
-        data = {"uitleg": ["Kleur per soort. Pas de kleuren en de regels aan en importeer opnieuw (de 2D-lagen en het terrein worden dan opnieuw getekend).",
+        data = {"versie": TABEL_VERSIE, "uitleg": ["Kleur per soort. Pas de kleuren en de regels aan en importeer opnieuw (de 2D-lagen en het terrein worden dan opnieuw getekend).",
                            "Elke regel heeft een naam, een kleur [rood, groen, blauw] van 0 tot 255 en voorwaarden: laag, functie, fysiek, plus, type en alleen (2d of 3d).",
                            "Een voorwaarde die ontbreekt past bij alles; past meer dan een regel, dan wint de meest specifieke. Zie de handleiding voor de uitleg.",
                            "Verwijder dit bestand (of gebruik 'Standaardstijlen herstellen' in het palet) om weer de standaardtabel te gebruiken."],
@@ -223,6 +237,49 @@ def schrijf_standaard():
             json.dump(data, f, ensure_ascii=False, indent=1)
         _CACHE["regels"] = None
     return pad
+
+
+def bijwerken():
+    """Vult je stijlbestand aan met wat de standaardtabel sinds de vorige keer erbij heeft gekregen, zonder je eigen regels en kleuren te
+    veranderen: regels die ontbreken worden toegevoegd en regels zonder deellaag krijgen die van de standaardtabel. Er komt een kopie
+    (stijlen.json.bak) van het oude bestand. Geeft (toegevoegd, aangevuld, bestand_was_er_niet)."""
+    pad = bestand_pad()
+    if not os.path.exists(pad):
+        schrijf_standaard()
+        return 0, 0, True
+    with open(pad, encoding="utf-8") as f:
+        data = json.load(f)
+    lijst = data.get("regels") if isinstance(data, dict) else data
+    if not isinstance(lijst, list):
+        raise ValueError("er staat geen lijst met regels in")
+    standaard = {veilige_naam(r["naam"]): r for r in STANDAARD_REGELS}
+    aanwezig = set()
+    aangevuld = 0
+    for r in lijst:
+        if isinstance(r, dict) and r.get("naam"):
+            naam = veilige_naam(r["naam"])
+            aanwezig.add(naam)
+            if "deellaag" not in r and naam in standaard and standaard[naam].get("deellaag"):
+                r["deellaag"] = standaard[naam]["deellaag"]
+                aangevuld += 1
+    toegevoegd = 0
+    for naam, r in standaard.items():
+        if naam not in aanwezig:
+            lijst.append(dict(r, kleur=list(r["kleur"])))
+            toegevoegd += 1
+    if not isinstance(data, dict):
+        data = {"regels": lijst}
+    data["regels"] = lijst
+    data["versie"] = TABEL_VERSIE
+    try:
+        import shutil
+        shutil.copyfile(pad, pad + ".bak")
+    except OSError:
+        pass
+    with open(pad, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=1)
+    _CACHE["regels"] = None
+    return toegevoegd, aangevuld, False
 
 
 def herstel():

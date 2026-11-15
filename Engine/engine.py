@@ -437,6 +437,13 @@ class Handler(BasisHandler):
             except Exception as fout:  # noqa: BLE001
                 antwoord = {"succeeded": False, "error": {"message": type(fout).__name__ + ": " + str(fout)}}
             self._stuur(200, json.dumps(antwoord), "application/json")
+        elif pad == "/stijlenbijwerken":
+            try:
+                import stijl as _stijl
+                toegevoegd, aangevuld, nieuw = _stijl.bijwerken()
+                self._stuur(200, json.dumps({"toegevoegd": toegevoegd, "aangevuld": aangevuld, "nieuw": nieuw}), "application/json")
+            except Exception as fout:  # noqa: BLE001
+                self._stuur(200, json.dumps({"fout": str(fout)}), "application/json")
         elif pad == "/stijlenherstel":
             try:
                 import stijl as _stijl

@@ -1285,7 +1285,11 @@ def importeer(aanvraag):
     print(f"PDOK Import versie {VERSIE}")
     if stijl is not None and (aanvraag.get("stijl2d") or aanvraag.get("stijl3d") or aanvraag.get("verfijnd2d")):
         regels_, eigen_, fout_ = stijl.laad()
-        print(f"Stijlen: {'je eigen bestand' if eigen_ else 'de standaardtabel'} met {len(regels_)} regels" + (f" - LET OP: {fout_}" if fout_ else ""))
+        n_deel_ = sum(1 for r in regels_ if r.get("deellaag"))
+        print(f"Stijlen: {'je eigen bestand' if eigen_ else 'de standaardtabel'} met {len(regels_)} regels" + (f", {n_deel_} met een deellaag" if aanvraag.get("verfijnd2d") else "")
+              + (f" - LET OP: {fout_}" if fout_ else ""))
+        if aanvraag.get("verfijnd2d") and not n_deel_:
+            print("LET OP: geen enkele stijlregel heeft een deellaag, dus de 2D-vlakken blijven op de laag van hun BGT-laag. Gebruik 'Stijlbestand bijwerken' of 'Standaardstijlen herstellen'.")
     if aanvraag.get("bomen"):
         naam = (aanvraag.get("boomobject") or "").strip() or (bomen.STANDAARD_OBJECT if bomen is not None else "")
         bekend = bibliotheek_namen()
@@ -1660,6 +1664,7 @@ PAGINA = """<!DOCTYPE html>
  <label class="klein" style="display:block;margin:2px 0"><input type="checkbox" id="stijl_3d" checked> 3D-terrein en gebouwen: een eigen oppervlak per soort</label>
  <div class="rij" style="margin:2px 0 6px">
   <button id="stijl_open" class="compact" title="Opent het bestand met de kleuren per soort (wordt aangemaakt als het er nog niet is) in je teksteditor">Stijlbestand openen</button>
+  <button id="stijl_bijwerken" class="compact" title="Vult je stijlbestand aan met nieuwe regels en deellagen uit de standaardtabel, zonder je eigen kleuren te veranderen (er komt een kopie stijlen.json.bak)">Stijlbestand bijwerken</button>
   <button id="stijl_herstel" class="compact" title="Verwijdert je eigen stijlbestand: daarna geldt weer de standaardtabel">Standaardstijlen herstellen</button>
  </div>
  <button id="importeer">Importeren in Archicad</button>
@@ -1771,6 +1776,12 @@ if (scheidingKnop) scheidingKnop.onclick = () => terreinActie('/scheidingencontr
 document.getElementById('stijl_open').onclick = async () => {
   try { const d = await (await fetch('/stijlenopenen')).json(); status.textContent = d.pad ? 'Stijlbestand geopend: ' + d.pad : 'Het stijlbestand kon niet worden geopend.'; }
   catch (e) { status.textContent = 'Het stijlbestand kon niet worden geopend.'; }
+};
+document.getElementById('stijl_bijwerken').onclick = async () => {
+  try {
+    const d = await (await fetch('/stijlenbijwerken', {method: 'POST', body: '{}'})).json();
+    status.textContent = d.fout ? 'Bijwerken mislukt: ' + d.fout : (d.nieuw ? 'Er was nog geen stijlbestand; het is aangemaakt met de standaardtabel.' : 'Stijlbestand bijgewerkt: ' + d.toegevoegd + ' regels toegevoegd, ' + d.aangevuld + ' regels kregen een deellaag.');
+  } catch (e) { status.textContent = 'Bijwerken mislukt.'; }
 };
 document.getElementById('stijl_herstel').onclick = async () => {
   try { await fetch('/stijlenherstel', {method: 'POST', body: '{}'}); status.textContent = 'De standaardstijlen gelden weer (je eigen stijlbestand is verwijderd).'; }
