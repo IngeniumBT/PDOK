@@ -42,13 +42,20 @@ def _gesigneerd_oppervlak(ring):
 
 
 def vlakken_uit_pdok(k, gebied, regels):
-    """De vlakken van de BGT in het gebied met een regel in de stijltabel. Geeft (lijst, telling zonder regel, telling per soort)."""
-    uit, zonder, soorten = [], Counter(), Counter()
+    """De vlakken van de BGT in het gebied met een regel in de stijltabel.
+    Geeft (lijst, telling zonder regel, telling per soort, telling van wat PDOK gaf en wat er is overgeslagen of meegenomen)."""
+    uit, zonder, soorten, tel = [], Counter(), Counter(), Counter()
     for laag in COLLECTIES:
         for f in k.haal_features("bgt", laag, *gebied):
+            tel[f"gegeven {laag}"] += 1
             eigen = f.get("properties") or {}
             geo = f.get("geometry") or {}
-            if eigen.get("eind_registratie") or (eigen.get("relatieve_hoogteligging") or 0) != 0:
+            niveau = eigen.get("relatieve_hoogteligging") or 0
+            if eigen.get("eind_registratie"):
+                tel["beëindigd"] += 1
+                continue
+            if niveau < 0:
+                tel["onder maaiveld"] += 1                    # een kelderluik of tunnel: niet in 3D
                 continue
             st_eig = stijl.eig_uit_2d(eigen)
             soort = (st_eig.get("type") or "").strip() or "(leeg)"
@@ -57,6 +64,7 @@ def vlakken_uit_pdok(k, gebied, regels):
             elif geo.get("type") == "MultiPolygon":
                 polygonen = geo.get("coordinates") or []
             else:
+                tel["geen vlak"] += 1
                 continue
             regel = stijl.kies(laag, st_eig, "3d", regels)
             fid = str(f.get("id") or eigen.get("lokaal_id") or eigen.get("lokaalid") or eigen.get("identificatie") or "")
@@ -78,15 +86,21 @@ def vlakken_uit_pdok(k, gebied, regels):
                 opp = abs(_gesigneerd_oppervlak(buiten)) - sum(abs(_gesigneerd_oppervlak(g)) for g in gaten)
                 cx = sum(p[0] for p in buiten) / len(buiten)
                 cy = sum(p[1] for p in buiten) / len(buiten)
-                if opp < MIN_OPPERVLAK or not (gebied[0] <= cx <= gebied[2] and gebied[1] <= cy <= gebied[3]):
+                if opp < MIN_OPPERVLAK:
+                    tel["te klein"] += 1
                     continue
+                if not (gebied[0] <= cx <= gebied[2] and gebied[1] <= cy <= gebied[3]):
+                    tel["zwaartepunt buiten het gebied"] += 1
+                    continue
+                if niveau > 0:
+                    tel["op een hoger niveau dan maaiveld meegenomen"] += 1
                 soorten[f"{laag}: {soort}"] += 1
                 if not regel or "vorm" not in regel:
                     zonder[f"{laag}: {soort}"] += 1
                     continue
                 sleutel = (fid + (f"-{n}" if len(polygonen) > 1 else "")) if fid else f"{cx:.2f}_{cy:.2f}"
                 uit.append({"id": f"BWD-{sleutel}", "buiten": buiten, "gaten": gaten, "regel": regel, "soort": f"{laag}: {soort}", "opp": opp})
-    return uit, zonder, soorten
+    return uit, zonder, soorten, tel
 
 
 def lichaam(buiten, gaten, z_onder, z_boven, oppervlak=None, kappen_als_driehoeken=False):
@@ -175,9 +189,15 @@ def plaats_bouwdelen(k, gebied, opties=None, voortgang=None, stop=None):
         regels = regels + [r for r in stijl.standaardregels() if r.get("vorm")]
         print("   Je stijlbestand heeft nog geen regels voor bouwdelen; de standaardregels worden gebruikt (met 'Stijlbestand bijwerken' neem je ze in je bestand op).")
     meld("Bouwdelen: BGT-vlakken ophalen")
-    vlakken, zonder, soorten = vlakken_uit_pdok(k, gebied, regels)
+    vlakken, zonder, soorten, tel = vlakken_uit_pdok(k, gebied, regels)
     totaal = len(vlakken) + sum(zonder.values())
-    print(f"{totaal} overige bouwdelen in de BGT voor dit gebied (x {gebied[0]:.0f}-{gebied[2]:.0f}, y {gebied[1]:.0f}-{gebied[3]:.0f})"
+    print("PDOK geeft voor dit gebied: " + ", ".join(f"{c} {tel.get('gegeven ' + c, 0)}" for c in COLLECTIES) + " (BGT-vlakken, voor het filteren).")
+    overgeslagen = [f"{n} {t}" for t, n in tel.items() if not t.startswith("gegeven") and not t.startswith("op een hoger") and n]
+    if overgeslagen:
+        print("   overgeslagen: " + ", ".join(overgeslagen))
+    if tel.get("op een hoger niveau dan maaiveld meegenomen"):
+        print(f"   {tel['op een hoger niveau dan maaiveld meegenomen']} liggen boven maaiveld (zoals een luifel boven een andere ondergrond) en zijn meegenomen.")
+    print(f"{totaal} overige bouwdelen om te maken (x {gebied[0]:.0f}-{gebied[2]:.0f}, y {gebied[1]:.0f}-{gebied[3]:.0f})"
           + (": " + ", ".join(f"{t} {n}" for t, n in soorten.most_common(8)) if soorten else "."))
     uit["vlakken"] = len(vlakken)
     uit["zonder_regel"] = sum(zonder.values())
@@ -249,6 +269,8 @@ def plaats_bouwdelen(k, gebied, opties=None, voortgang=None, stop=None):
         print(f"   {uit['zonder_terrein']} liggen niet op of vlak bij terrein en worden overgeslagen.")
     if not items:
         return uit
+    for it in items[:3]:
+        print(f"   bijvoorbeeld: {it['soort']} bij ({it['basis']['x']:.1f}, {it['basis']['y']:.1f}), {it['regel']['vorm']} van {it['z_onder']:.2f} tot {it['z_boven']:.2f} m")
     voorbeeld = Counter((it["regel"]["naam"], it["regel"]["vorm"], it["regel"]["hoogte"]) for it in items)
     print("   per soort: " + ", ".join(f"{n} x {nm} ({vorm}, {h:g} m)" for (nm, vorm, h), n in voorbeeld.most_common(8)))
     r = maak_alle(k, items, voortgang, stop)
