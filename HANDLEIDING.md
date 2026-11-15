@@ -13,7 +13,7 @@ en zet ze in je Archicad-project: als lijnen en vlakken, als 3D-gebouwen, als te
 
 ## Installeren
 
-1. Download het bestand **`PDOKImport_AC29.apx`** van de pagina Releases (je krijgt de link van degene die je de proefversie geeft).
+1. Download het bestand **`PDOKImport_AC29.apx`** van de pagina Releases: <https://github.com/IngeniumBT/PDOK/releases> (kies de nieuwste versie).
 2. Klik met de rechtermuisknop op het bestand > **Eigenschappen**. Staat onderaan **Blokkering opheffen** (*Unblock*)? Zet daar een vinkje en
    klik op OK.
 3. Archicad: **Opties > Add-On Manager** (*Options > Add-On Manager*) > tabblad **Edit List of Available Add-Ons** > **Add** > kies het bestand > **OK**.
