@@ -44,6 +44,11 @@ except ImportError:
     lichtmasten = None
 
 try:
+    import bouwdelen  # overige bouwdelen (overkappingen, luifels, ...) uit de BGT als morph (bouwdelen.py naast kaart.py)
+except ImportError:
+    bouwdelen = None
+
+try:
     import stijl  # kleur per soort (functie, fysiek voorkomen, plus-fysiek voorkomen); stijl.py naast kaart.py
 except ImportError:
     stijl = None
@@ -139,7 +144,7 @@ VERSIE = "onbekend"      # de motor zet dit uit versie.txt
 NAMESPACE = "PDOKImport"   # de opdrachten van de add-on zelf (niet meer van Tapir)
 
 # Wat de add-on al kan. Wat nog niet beschikbaar is, wordt in de pagina uitgeschakeld en overgeslagen.
-BESCHIKBAAR = {"tekst": True, "gebouwen": True, "terrein": True, "bomen": True, "lichtmasten": True}
+BESCHIKBAAR = {"tekst": True, "gebouwen": True, "terrein": True, "bomen": True, "lichtmasten": True, "bouwdelen": True}
 ADDON = True          # de motor draait in de add-on: de terreincode slaat de controles over die voor Tapir waren
 SKIRT_BEKEND = True   # de add-on zet skirtLevel rechtstreeks: een diepte onder het referentievlak (level)
 
@@ -1231,6 +1236,22 @@ def meld_voortgang_bomen(tekst, fractie=None):
 BOMEN_VOORTGANG = {"binnen": None}
 
 
+def importeer_bouwdelen_uit_venster(gebied, vast_niveau=None):
+    if bouwdelen is None or bomen is None:
+        print("3D-bouwdelen overgeslagen: bouwdelen.py (met bomen.py, terrein.py, drie_d.py en stijl.py) staat niet naast kaart.py.")
+        return 0
+    if GEOREFERENTIE != "rd":
+        print('3D-bouwdelen overgeslagen: zet GEOREFERENTIE in kaart.py op "rd".')
+        return 0
+    print("\n=== 3D-bouwdelen ===")
+    try:
+        uitkomst = bouwdelen.plaats_bouwdelen(sys.modules[__name__], gebied, {"z": vast_niveau}, voortgang=meld_voortgang_bomen, stop=moet_stoppen)
+        return uitkomst["gelukt"]
+    except Exception as fout:
+        print(f"3D-bouwdelen mislukt: {fout}")
+        return 0
+
+
 def importeer_lichtmasten_uit_venster(gebied, object_naam, vast_niveau=None):
     if lichtmasten is None or bomen is None:
         print("3D-lichtmasten overgeslagen: lichtmasten.py (met bomen.py, terrein.py en drie_d.py) staat niet naast kaart.py.")
@@ -1338,7 +1359,7 @@ def importeer(aanvraag):
     if (x_max - x_min) > MAX_ZIJDE or (y_max - y_min) > MAX_ZIJDE:
         raise ValueError(f"Gebied te groot, maximaal {MAX_ZIJDE} x {MAX_ZIJDE} meter.")
     onderdelen = [n for n, aan in (("3D-gebouwen", aanvraag.get("gebouwen")), ("3D-terrein", aanvraag.get("terrein")),
-                                   ("3D-scheidingen", aanvraag.get("scheidingen")),
+                                   ("3D-scheidingen", aanvraag.get("scheidingen")), ("3D-bouwdelen", aanvraag.get("bouwdelen")),
                                    ("3D-bomen", aanvraag.get("bomen")), ("3D-lichtmasten", aanvraag.get("lichtmasten")),
                                    ("bestemmingsplan", aanvraag.get("plan")),
                    ("2D-lagen", aanvraag.get("lagen")))
@@ -1396,6 +1417,13 @@ def _importeer_onderdelen(aanvraag, begin, binnen, tijd, gebied):
     if aanvraag.get("scheidingen") and not moet_stoppen():
         begin("3D-scheidingen")
         totaal += tijd("3D-scheidingen", lambda: _importeer(aanvraag, "scheidingen"))
+    if aanvraag.get("bouwdelen") and not moet_stoppen():
+        begin("3D-bouwdelen")
+        BOMEN_VOORTGANG["binnen"] = binnen
+        try:
+            totaal += tijd("3D-bouwdelen", lambda: _importeer(aanvraag, "bouwdelen"))
+        finally:
+            BOMEN_VOORTGANG["binnen"] = None
     if aanvraag.get("bomen") and not moet_stoppen():
         begin("3D-bomen")
         BOMEN_VOORTGANG["binnen"] = binnen
@@ -1449,6 +1477,9 @@ def _importeer(aanvraag, deel="alles"):
     if deel == "scheidingen":
         return importeer_gebouwen_uit_venster(
             (x_min, y_min, x_max, y_max), True, aanvraag.get("hoogtemodus") == "nul", "scheidingen")
+    if deel == "bouwdelen":
+        niveau = 0.0 if aanvraag.get("hoogtemodus") == "nul" else None            # bij vlak terrein staan de bouwdelen op 0 m
+        return importeer_bouwdelen_uit_venster((x_min, y_min, x_max, y_max), niveau)
     if deel == "lichtmasten":
         niveau = 0.0 if aanvraag.get("hoogtemodus") == "nul" else None            # bij vlak terrein staan de lichtmasten op 0 m
         return importeer_lichtmasten_uit_venster((x_min, y_min, x_max, y_max), aanvraag.get("lichtobject", ""), niveau)
@@ -1703,6 +1734,7 @@ PAGINA = """<!DOCTYPE html>
    <label><input type="checkbox" id="drie_scheidingen"> Scheidingen</label>
    <label><input type="checkbox" id="drie_bomen"> Bomen</label>
    <label><input type="checkbox" id="drie_lichtmasten"> Lichtmasten</label>
+   <label><input type="checkbox" id="drie_bouwdelen" title="Overig bouwwerk en gebouwinstallatie uit de BGT: overkappingen, open loodsen, luifels, schuren, tanks, bordessen. De BGT heeft hiervoor geen hoogte; de hoogte per soort staat als aanname in de stijltabel."> Overige bouwdelen</label>
   </div>
   <div id="sub3d" class="sub" style="display:none">
    <div id="sub_terrein" style="display:none">
@@ -1931,6 +1963,7 @@ if (!BESCHIKBAAR.gebouwen) nogNiet(['drie_gebouwen']);
 if (!BESCHIKBAAR.terrein) nogNiet(['drie_terrein', 'drie_skirt', 'drie_diepte', 'drie_dekken', 'drie_naadmax', 'drie_controle', 'drie_wis', 'drie_kwaliteit', 'drie_scheidingen_meten', 'drie_soorten']);
 if (!BESCHIKBAAR.tekst) nogNiet(['planteksten']);
 if (!BESCHIKBAAR.lichtmasten) nogNiet(['drie_lichtmasten', 'drie_lichtobject']);
+if (!BESCHIKBAAR.bouwdelen) nogNiet(['drie_bouwdelen']);
 // Subopties verschijnen pas als het vinkje erboven aan staat; de maatvoering van het plan kan pas als er een plan is gekozen.
 function werkSubopties() {
   const t = document.getElementById('drie_terrein').checked, b = document.getElementById('drie_bomen').checked, l = document.getElementById('drie_lichtmasten').checked;
@@ -2166,10 +2199,11 @@ document.getElementById('importeer').onclick = async () => {
   const bomen = document.getElementById('drie_bomen').checked;
   const scheidingen = document.getElementById('drie_scheidingen').checked;
   const lichtmasten = document.getElementById('drie_lichtmasten').checked, lichtobject = document.getElementById('drie_lichtobject').value;
+  const bouwdelen = document.getElementById('drie_bouwdelen').checked;
   const stijl2d = document.getElementById('stijl_2d').checked, stijl3d = document.getElementById('stijl_3d').checked;
   const verfijnd2d = true;                                         // de 2D-vlakken staan altijd op lagen per soort
   const boomobject = document.getElementById('drie_boomobject').value;
-  if (!lagen.length && !plan && !gebouwen && !terrein && !bomen && !scheidingen && !lichtmasten) {
+  if (!lagen.length && !plan && !gebouwen && !terrein && !bomen && !scheidingen && !lichtmasten && !bouwdelen) {
     status.textContent = 'Vink minstens een laag, 3D-onderdeel of bestemmingsplan aan.';
     return;
   }
@@ -2194,7 +2228,7 @@ document.getElementById('importeer').onclick = async () => {
   }
   status.textContent = 'Bezig met importeren van ' + lagen.length + ' lagen' +
     (plan ? ', het bestemmingsplan' : '') + (gebouwen ? ', 3D-gebouwen' : '') + (terrein ? ', 3D-terrein' : '') +
-    (bomen ? ', bomen' : '') + (lichtmasten ? ', lichtmasten' : '') +
+    (bomen ? ', bomen' : '') + (lichtmasten ? ', lichtmasten' : '') + (bouwdelen ? ', overige bouwdelen' : '') +
     '... (kijk in de terminal voor de details)';
   const knop = document.getElementById('importeer'), balk = document.getElementById('balk');
   const stopknop = document.getElementById('stop');
@@ -2203,7 +2237,7 @@ document.getElementById('importeer').onclick = async () => {
     const r = await fetch('/import', {method: 'POST',
       body: JSON.stringify({...gebied, lagen, alleniveaus, pennen, plan, planteksten, perceelteksten,
                             gebouwen, gebouwenmateriaal, terrein, terreinnaad, terreinoverslaan, terreinskirt, terreindiepte, terreindekken, terreinnaadmax, hoogtemodus,
-                            bomen, boomobject, scheidingen, lichtmasten, lichtobject, stijl2d, stijl3d, verfijnd2d})});
+                            bomen, boomobject, scheidingen, lichtmasten, lichtobject, bouwdelen, stijl2d, stijl3d, verfijnd2d})});
     const d = await r.json();
     if (d.fout) { status.textContent = 'Fout: ' + d.fout; return; }
     timerStart();

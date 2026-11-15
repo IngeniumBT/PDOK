@@ -1,6 +1,6 @@
 # Openstaande punten en bevindingen (PDOK Import)
 
-Dit bestand legt vast wat er nog open staat en wat we hebben gemeten, zodat het later opgepakt kan worden. Bijgewerkt bij versie 0.21.0.
+Dit bestand legt vast wat er nog open staat en wat we hebben gemeten, zodat het later opgepakt kan worden. Bijgewerkt bij versie 0.22.0.
 
 ## Wat af is
 Kaart en palet, 2D-lagen (BGT, kadaster, bestemmingsplan), teksten, bomen (met zoekvak), 3D-gebouwen (LoD 2.2, met terugvalstappen en zoeken naar de kleinste groep driehoeken),
@@ -18,7 +18,7 @@ Uit de verkenning van de BGT-collecties bij PDOK (puntobjecten, vegetatie en lab
 
 1. **Lichtmasten in 3D: gebouwd in 0.21.0** (als Lamp-element, standaard *Lantaarnpaal 04*; wacht op de test van de gebruiker). Eventueel later ook andere palen en masten (`mast`), op dezelfde manier.
 2. **Straatnamen als tekst.** Collectie `openbareruimtelabel`: labelpunten met de straatnaam en de hoek waaronder het label staat. Eventueel ook huisnummers (`pand_nummeraanduiding`).
-3. **Overige bouwwerken in 3D.** Overkappingen, open loodsen en vergelijkbare bouwwerken (collectie `overigbouwwerk`), en luifels, bordessen en toegangstrappen (collectie `gebouwinstallatie`). Uit te zoeken: waar de hoogte vandaan komt (de BGT heeft er geen; mogelijk de 3D Basisvoorziening, waar `overkapping` al als terreinobject voorkomt).
+3. **Overige bouwwerken in 3D: een eerste versie is gebouwd in 0.22.0** (wacht op de test van de gebruiker). De hoogte is een aanname per soort in de stijltabel; de BGT heeft er geen en de 3D Basisvoorziening kent een overkapping alleen als terreinvlak. Mogelijke verbeteringen: bij een overkapping ook palen of wanden, een echte trap (helling) voor een toegangstrap, en een hoogte uit het AHN.
 4. **3D-hagen.** Collecties `vegetatieobject_lijn` en `vegetatieobject_vlak`, soort `haag`: als morph met een aangenomen hoogte.
 5. **Boomhoogte uit het AHN.** In de BGT hangt aan bomen geen soort, hoogte of kroon; alleen het soort (`boom` of `haag`) en registratiegegevens. Een hoogte zou kunnen worden afgeleid uit het AHN (oppervlakmodel min maaiveld; PDOK biedt het als WCS). Niet uitgeprobeerd.
 6. **Technisch: de BGT-API-basis.** PDOK noemt `api.pdok.nl/kadaster/bgt/ogc/v1` nu de canonieke basis; wij gebruiken nog `api.pdok.nl/lv/bgt/ogc/v1`. Dat werkt nu nog; bij een volgende versie omzetten.

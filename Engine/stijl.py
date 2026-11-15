@@ -13,6 +13,9 @@ Er is een tabel met regels. Een regel heeft een naam, een kleur en voorwaarden:
   alleen    "2d" of "3d": de regel geldt alleen daar (weglaten = beide)
   deellaag  de 2D-vlakken van deze soort komen op een eigen laag: BGT_<laag>_<deellaag> (bijvoorbeeld BGT_wegdeel_fietspad); zonder deellaag blijven ze op de
             laag van de BGT-laag zelf
+  vorm      (alleen 3D, voor overige bouwdelen) "blok" of "plaat": een blok staat op het maaiveld en is `hoogte` meter hoog; een plaat hangt `hoogte` meter
+            boven het maaiveld en is `dikte` meter dik (een overkapping of luifel)
+  hoogte    meter (zie vorm); dikte  meter (alleen bij een plaat)
   prioriteit  een geheel getal (standaard 0): een regel met een hogere prioriteit wint van een met een lagere, ook als die meer voorwaarden heeft
 
 Een voorwaarde die ontbreekt, past bij alles. Past meer dan een regel, dan wint die met de hoogste prioriteit, en daarna de meest specifieke (de meeste voorwaarden,
@@ -25,7 +28,7 @@ import os
 import re
 
 BESTANDSNAAM = "stijlen.json"
-TABEL_VERSIE = 2             # de versie van de standaardtabel: 2 = met deellagen en de gebouwregels (0.19.0)
+TABEL_VERSIE = 3             # de versie van de standaardtabel: 2 = met deellagen en de gebouwregels (0.19.0); 3 = met de overige bouwdelen (0.22.0)
 
 # De standaardtabel. De kleuren zijn rood, groen, blauw van 0 tot 255.
 STANDAARD_REGELS = [
@@ -69,6 +72,20 @@ STANDAARD_REGELS = [
     {"naam": "pand", "kleur": [232, 232, 236], "laag": "pand", "alleen": "2d"},
     {"naam": "gebouwinstallatie", "kleur": [218, 218, 224], "laag": "gebouwinstallatie", "alleen": "2d"},
     {"naam": "overigbouwwerk", "kleur": [224, 224, 230], "laag": "overigbouwwerk", "alleen": "2d"},
+    # ---- overige bouwdelen in 3D (overig bouwwerk en gebouwinstallatie): de BGT heeft hier geen hoogte, dus de hoogte is een AANNAME per soort.
+    #      Een blok staat op het maaiveld (hoogte = hoe hoog); een plaat hangt hoogte meter boven het maaiveld en is dikte meter dik.
+    {"naam": "bwd_overkapping", "kleur": [168, 168, 172], "laag": "overigbouwwerk", "type": "overkapping", "alleen": "3d", "vorm": "plaat", "hoogte": 3.0, "dikte": 0.2},
+    {"naam": "bwd_open_loods", "kleur": [150, 150, 156], "laag": "overigbouwwerk", "type": "open loods", "alleen": "3d", "vorm": "plaat", "hoogte": 4.0, "dikte": 0.3},
+    {"naam": "bwd_schuur", "kleur": [196, 180, 150], "laag": "overigbouwwerk", "type": "schuur", "alleen": "3d", "vorm": "blok", "hoogte": 3.5},
+    {"naam": "bwd_tank", "kleur": [190, 190, 194], "laag": "overigbouwwerk", "type": "opslagtank", "alleen": "3d", "vorm": "blok", "hoogte": 6.0},
+    {"naam": "bwd_silo", "kleur": [200, 200, 204], "laag": "overigbouwwerk", "type": "silo", "alleen": "3d", "vorm": "blok", "hoogte": 10.0},
+    {"naam": "bwd_trafo", "kleur": [170, 175, 170], "laag": "overigbouwwerk", "type": "trafo", "alleen": "3d", "vorm": "blok", "hoogte": 2.5},
+    {"naam": "bwd_bunker", "kleur": [160, 160, 150], "laag": "overigbouwwerk", "type": "bunker", "alleen": "3d", "vorm": "blok", "hoogte": 2.5},
+    {"naam": "bwd_bezinkbak", "kleur": [175, 180, 185], "laag": "overigbouwwerk", "type": "bezinkbak", "alleen": "3d", "vorm": "blok", "hoogte": 0.5},
+    {"naam": "bwd_bassin", "kleur": [175, 185, 195], "laag": "overigbouwwerk", "type": "bassin", "alleen": "3d", "vorm": "blok", "hoogte": 0.5},
+    {"naam": "bwd_luifel", "kleur": [165, 165, 170], "laag": "gebouwinstallatie", "type": "luifel", "alleen": "3d", "vorm": "plaat", "hoogte": 2.8, "dikte": 0.15},
+    {"naam": "bwd_bordes", "kleur": [190, 185, 175], "laag": "gebouwinstallatie", "type": "bordes", "alleen": "3d", "vorm": "blok", "hoogte": 0.4},
+    {"naam": "bwd_trap", "kleur": [185, 180, 170], "laag": "gebouwinstallatie", "type": "trap", "alleen": "3d", "vorm": "blok", "hoogte": 0.6},
     # ---- gebouwen in 3D (laag "gebouw"; het type is de soort vlak): hellend dak, plat dak, muur en grondvlak
     {"naam": "dak", "kleur": [140, 64, 51], "laag": "gebouw", "type": "dak", "alleen": "3d"},
     {"naam": "dak_plat", "kleur": [128, 128, 134], "laag": "gebouw", "type": "dak_plat", "alleen": "3d"},
@@ -117,6 +134,15 @@ def _schoon(regel):
         uit["laag"] = norm_laag(regel["laag"])
     if str(regel.get("alleen") or "").lower() in ("2d", "3d"):
         uit["alleen"] = str(regel["alleen"]).lower()
+    if str(regel.get("vorm") or "").strip().lower() in ("blok", "plaat"):
+        uit["vorm"] = str(regel["vorm"]).strip().lower()
+        for sl in ("hoogte", "dikte"):
+            try:
+                uit[sl] = max(0.0, float(regel.get(sl)))
+            except (TypeError, ValueError):
+                pass
+        if "hoogte" not in uit:
+            return None                                     # een vorm zonder hoogte is niet bruikbaar
     deel = re.sub(r"[^a-z0-9_]+", "_", str(regel.get("deellaag") or "").strip().lower()).strip("_")
     if deel:
         uit["deellaag"] = deel
@@ -171,6 +197,11 @@ def laad():
             fout = (fout + "; " if fout else "") + f"{BESTANDSNAAM} mist {len(ontbreekt)} regels uit de standaardtabel (zoals {', '.join(ontbreekt[:3])}); 'Stijlbestand bijwerken' voegt ze toe"
     _CACHE.update(pad=pad, tijd=tijd, regels=regels, fout=fout, eigen=eigen)
     return regels, eigen, fout
+
+
+def standaardregels():
+    """De standaardtabel in de vaste vorm (ook als je een eigen stijlbestand hebt)."""
+    return [r for r in (_schoon(x) for x in STANDAARD_REGELS) if r]
 
 
 def eig_uit_2d(eig):
