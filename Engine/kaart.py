@@ -101,6 +101,9 @@ PERCEELTEKST_FORMAAT = "{sectie} {perceelnummer}"
 PERCEELTEKST_HOOGTE = 2.5  # hoogte van de tekst, zoals CreateTexts die verwacht
 PERCEELTEKSTPEN = 3        # pen van de tekst, als je in het venster geen pen voor de percelen kiest
 PERCEELTEKSTLAAG = "KAD_perceelnummer"
+STRAATNAAM_HOOGTE = 3.5     # hoogte van de straatnaamteksten
+STRAATNAAM_PEN = 1          # vaste pen
+STRAATNAAMLAAG = "BGT_straatnamen"
 
 # Lagen die we niet aanbieden: historisch (leeg sinds 2020) en alleen labels
 UITGESLOTEN = {
@@ -926,15 +929,109 @@ def perceel_teksten(features, midden_x, midden_y):
     return teksten
 
 
+_TEKSTVELDEN = ("tekst", "label", "openbareruimtenaam", "openbare_ruimte_naam", "straatnaam", "naam", "openbareruimte")
+_HOEKVELDEN = ("hoek", "orientatie", "oriëntatie", "rotatie", "angle")
+
+
+def straatnaam_teksten(features, midden_x, midden_y):
+    """Een tekst per labelpunt van de BGT (collectie openbareruimtelabel): de straatnaam en de draaiing (hoek) van het label.
+
+    De veldnamen worden herkend (tekst, label, naam, ...); het eerste punt wordt in het log getoond. De hoek staat in graden;
+    een tekst die ondersteboven zou staan, wordt een halve slag gedraaid zodat hij leesbaar blijft."""
+    teksten = []
+    zonder_naam = 0
+    gezien = set()
+    eerste = True
+    for f in features:
+        eig = f.get("properties") or {}
+        geo = f.get("geometry") or {}
+        if eerste:
+            eerste = False
+            print("   velden van een label: " + ", ".join(f"{k}={str(v)[:30]}" for k, v in list(eig.items())[:14]))
+        if geo.get("type") == "Point":
+            punten = [geo.get("coordinates")]
+        elif geo.get("type") == "MultiPoint":
+            punten = geo.get("coordinates") or []
+        else:
+            continue
+        naam = ""
+        lage = {str(k).lower(): v for k, v in eig.items()}
+        for k_ in _TEKSTVELDEN:
+            v = lage.get(k_)
+            if isinstance(v, str) and v.strip():
+                naam = v.strip()
+                break
+        if not naam:                                  # een ander veld met een naam of tekst erin
+            for k_, v in lage.items():
+                if isinstance(v, str) and v.strip() and any(w in k_ for w in ("naam", "tekst", "label")) \
+                        and not any(w in k_ for w in ("id", "type", "status", "bag")):
+                    naam = v.strip()
+                    break
+        if not naam:
+            zonder_naam += 1
+            continue
+        hoek = 0.0
+        for k_ in _HOEKVELDEN:
+            v = lage.get(k_)
+            if isinstance(v, (int, float)):
+                hoek = float(v)
+                break
+        hoek = hoek % 360.0
+        if 90.0 < hoek <= 270.0:
+            hoek -= 180.0                              # leesbaar: nooit ondersteboven
+        if hoek > 270.0:
+            hoek -= 360.0
+        for c in punten:
+            if not c or len(c) < 2:
+                continue
+            sleutel = (naam, round(c[0], 1), round(c[1], 1))
+            if sleutel in gezien:
+                continue
+            gezien.add(sleutel)
+            teksten.append({"x": c[0] - midden_x, "y": c[1] - midden_y, "tekst": naam, "hoek": math.radians(hoek), "uitlijning": "Center"})
+    if zonder_naam:
+        print(f"   {zonder_naam} labels zonder naam overgeslagen.")
+    return teksten
+
+
+def importeer_straatnamen_uit_venster(gebied):
+    """Straatnamen als tekst op de laag BGT_straatnamen (hoogte STRAATNAAM_HOOGTE, pen STRAATNAAM_PEN)."""
+    print("\n=== Straatnamen ===")
+    if not BESCHIKBAAR["tekst"]:
+        print("Straatnamen overgeslagen: deze versie van de add-on kan geen teksten maken.")
+        return 0
+    try:
+        features = haal_features("bgt", "openbareruimtelabel", *gebied)
+    except Exception as fout:
+        print(f"Straatnamen ophalen mislukt: {fout}")
+        return 0
+    print(f"{len(features)} labelpunten in de BGT voor dit gebied.")
+    if GEOREFERENTIE == "rd":
+        midden_x = midden_y = 0
+    else:
+        midden_x, midden_y = (gebied[0] + gebied[2]) / 2, (gebied[1] + gebied[3]) / 2
+    teksten = straatnaam_teksten(features, midden_x, midden_y)
+    if not teksten:
+        print("Geen straatnamen gevonden.")
+        return 0
+    for t in teksten[:3]:
+        print(f"   bijvoorbeeld: '{t['tekst']}' bij ({t['x']:.1f}, {t['y']:.1f}), draaiing {math.degrees(t['hoek']):.0f} graden")
+    ok, fout = teken_teksten(STRAATNAAMLAAG, teksten, STRAATNAAM_HOOGTE, STRAATNAAM_PEN)
+    print(f"{ok} straatnamen als tekst ({fout} mislukt), op laag {STRAATNAAMLAAG}, hoogte {STRAATNAAM_HOOGTE:g}, pen {STRAATNAAM_PEN}. "
+          f"Nogmaals importeren maakt ze dubbel: wis eerst de laag.")
+    return ok
+
+
 def teken_teksten(laagnaam, teksten, hoogte, pen):
     if not BESCHIKBAAR["tekst"]:
         return 0, 0
     laag_index = zorg_voor_laag(laagnaam)
     gelukt = mislukt = 0
     for i in range(0, len(teksten), 100):
-        batch = [{"floorIndex": 0, "coordinate": {"x": t["x"], "y": t["y"]},
-                  "text": t["tekst"], "height": hoogte,
-                  "layerIndex": laag_index, "pen": pen}
+        batch = [dict({"floorIndex": 0, "coordinate": {"x": t["x"], "y": t["y"]},
+                       "text": t["tekst"], "height": hoogte,
+                       "layerIndex": laag_index, "pen": pen},
+                      **({"angle": t["hoek"]} if t.get("hoek") else {}), **({"justification": t["uitlijning"]} if t.get("uitlijning") else {}))
                  for t in teksten[i:i + 100]]
         r = tapir("CreateTexts", {"textsData": batch})
         if not r.get("succeeded"):
@@ -1394,7 +1491,7 @@ def importeer(aanvraag):
                                    ("3D-scheidingen", aanvraag.get("scheidingen")), ("3D-bouwdelen", aanvraag.get("bouwdelen")),
                                    ("3D-bomen", aanvraag.get("bomen")), ("3D-groenvlakken", aanvraag.get("groen")), ("3D-lichtmasten", aanvraag.get("lichtmasten")),
                                    ("bestemmingsplan", aanvraag.get("plan")),
-                   ("2D-lagen", aanvraag.get("lagen")))
+                   ("straatnamen", aanvraag.get("straatnamen")), ("2D-lagen", aanvraag.get("lagen")))
                   if aan]
     stap = {"i": -1}
     print(f"Gebied in RD: x {x_min:.0f} tot {x_max:.0f}, y {y_min:.0f} tot {y_max:.0f}  "
@@ -1477,8 +1574,11 @@ def _importeer_onderdelen(aanvraag, begin, binnen, tijd, gebied):
             totaal += tijd("3D-lichtmasten", lambda: _importeer(aanvraag, "lichtmasten"))
         finally:
             BOMEN_VOORTGANG["binnen"] = None
-    if (aanvraag.get("lagen") or aanvraag.get("plan")) and not moet_stoppen():
+    if (aanvraag.get("lagen") or aanvraag.get("plan") or aanvraag.get("straatnamen")) and not moet_stoppen():
         with PlattegrondActief():
+            if aanvraag.get("straatnamen") and not moet_stoppen():
+                begin("Straatnamen")
+                totaal += tijd("Straatnamen", lambda: _importeer(aanvraag, "straatnamen"))
             if aanvraag.get("plan"):
                 begin("Bestemmingsplan")
                 totaal += tijd("Bestemmingsplan", lambda: _importeer(aanvraag, "plan"))
@@ -1509,6 +1609,8 @@ def _importeer(aanvraag, deel="alles"):
     if deel == "plan":
         return importeer_plan_uit_venster(
             aanvraag["plan"], (x_min, y_min, x_max, y_max), bool(aanvraag.get("planteksten", True)))
+    if deel == "straatnamen":
+        return importeer_straatnamen_uit_venster((x_min, y_min, x_max, y_max))
     if deel == "gebouwen":
         return importeer_gebouwen_uit_venster(
             (x_min, y_min, x_max, y_max), bool(aanvraag.get("gebouwenmateriaal", True)), aanvraag.get("hoogtemodus") == "nul",
@@ -1769,6 +1871,7 @@ PAGINA = """<!DOCTYPE html>
   <div class="kaartkop">2D &middot; BGT en Kadaster</div>
   <div class="klein" style="margin:0 0 4px">Pen: leeg = standaard</div>
   <div id="lagen">Lagen laden...</div>
+  <label class="optie"><input type="checkbox" id="straatnamen"> Straatnamen als tekst</label>
   <label class="optie"><input type="checkbox" id="alleniveaus"> Ook viaducten en tunnels (boven en onder maaiveld)</label>
  </div>
 
@@ -2288,6 +2391,7 @@ document.getElementById('importeer').onclick = async () => {
   const scheidingen = document.getElementById('drie_scheidingen').checked;
   const lichtmasten = document.getElementById('drie_lichtmasten').checked, lichtobject = document.getElementById('drie_lichtobject').value;
   const bouwdelen = document.getElementById('drie_bouwdelen').checked;
+  const straatnamen = document.getElementById('straatnamen').checked;
   const groen = document.getElementById('drie_groen').checked, groenobject = document.getElementById('drie_groenobject').value;
   const groenbos = document.getElementById('drie_groen_bos').checked, groenheesters = document.getElementById('drie_groen_heesters').checked;
   const groenmaten = {};
@@ -2295,7 +2399,7 @@ document.getElementById('importeer').onclick = async () => {
   const stijl2d = true, stijl3d = true;                // kleuren per soort: altijd aan
   const verfijnd2d = true;                                         // de 2D-vlakken staan altijd op lagen per soort
   const boomobject = document.getElementById('drie_boomobject').value;
-  if (!lagen.length && !plan && !gebouwen && !terrein && !bomen && !scheidingen && !lichtmasten && !bouwdelen && !groen) {
+  if (!lagen.length && !plan && !gebouwen && !terrein && !bomen && !scheidingen && !lichtmasten && !bouwdelen && !groen && !straatnamen) {
     status.textContent = 'Vink minstens een laag, 3D-onderdeel of bestemmingsplan aan.';
     return;
   }
@@ -2320,7 +2424,7 @@ document.getElementById('importeer').onclick = async () => {
   }
   status.textContent = 'Bezig met importeren van ' + lagen.length + ' lagen' +
     (plan ? ', het bestemmingsplan' : '') + (gebouwen ? ', 3D-gebouwen' : '') + (terrein ? ', 3D-terrein' : '') +
-    (bomen ? ', bomen' : '') + (lichtmasten ? ', lichtmasten' : '') + (bouwdelen ? ', overige bouwdelen' : '') + (groen ? ', groenvlakken' : '') +
+    (bomen ? ', bomen' : '') + (lichtmasten ? ', lichtmasten' : '') + (bouwdelen ? ', overige bouwdelen' : '') + (groen ? ', groenvlakken' : '') + (straatnamen ? ', straatnamen' : '') +
     '... (kijk in de terminal voor de details)';
   const knop = document.getElementById('importeer'), balk = document.getElementById('balk');
   const stopknop = document.getElementById('stop');
@@ -2329,7 +2433,7 @@ document.getElementById('importeer').onclick = async () => {
     const r = await fetch('/import', {method: 'POST',
       body: JSON.stringify({...gebied, lagen, alleniveaus, pennen, plan, planteksten, perceelteksten,
                             gebouwen, gebouwenmateriaal, terrein, terreinnaad, terreinoverslaan, terreinskirt, terreindiepte, terreindekken, terreinnaadmax, hoogtemodus,
-                            bomen, boomobject, scheidingen, lichtmasten, lichtobject, bouwdelen, groen, groenobject, groenbos, groenheesters, groenmaten, stijl2d, stijl3d, verfijnd2d})});
+                            bomen, boomobject, scheidingen, lichtmasten, lichtobject, bouwdelen, straatnamen, groen, groenobject, groenbos, groenheesters, groenmaten, stijl2d, stijl3d, verfijnd2d})});
     const d = await r.json();
     if (d.fout) { status.textContent = 'Fout: ' + d.fout; return; }
     timerStart();

@@ -1,6 +1,6 @@
 # Openstaande punten en bevindingen (PDOK Import)
 
-Dit bestand legt vast wat er nog open staat en wat we hebben gemeten, zodat het later opgepakt kan worden. Bijgewerkt bij versie 0.24.1.
+Dit bestand legt vast wat er nog open staat en wat we hebben gemeten, zodat het later opgepakt kan worden. Bijgewerkt bij versie 0.25.0.
 
 ## Wat af is
 Kaart en palet, 2D-lagen (BGT, kadaster, bestemmingsplan), teksten, bomen (met zoekvak), 3D-gebouwen (LoD 2.2, met terugvalstappen en zoeken naar de kleinste groep driehoeken),
@@ -17,7 +17,7 @@ Nog te doen: de scheidingen in 3D op `bgt_type` (muur, hek, kademuur) en zo nodi
 Uit de verkenning van de BGT-collecties bij PDOK (puntobjecten, vegetatie en labels). Eerst een overzicht van wat er is; wat gewenst is, staat hieronder.
 
 1. **Lichtmasten in 3D: gebouwd in 0.21.0** (als Lamp-element, standaard *Lantaarnpaal 04*; wacht op de test van de gebruiker). Eventueel later ook andere palen en masten (`mast`), op dezelfde manier.
-2. **Straatnamen als tekst.** Collectie `openbareruimtelabel`: labelpunten met de straatnaam en de hoek waaronder het label staat. Eventueel ook huisnummers (`pand_nummeraanduiding`).
+2. **Straatnamen als tekst: gebouwd in 0.25.0** (wacht op de test van de gebruiker; de veldnamen en de eenheid van de hoek zijn nog niet aan echte data getoetst). Oorspronkelijke notitie: Collectie `openbareruimtelabel`: labelpunten met de straatnaam en de hoek waaronder het label staat. Eventueel ook huisnummers (`pand_nummeraanduiding`).
 3. **Overige bouwwerken in 3D: een eerste versie is gebouwd in 0.22.0** (wacht op de test van de gebruiker). De hoogte is een aanname per soort in de stijltabel; de BGT heeft er geen en de 3D Basisvoorziening kent een overkapping alleen als terreinvlak. Mogelijke verbeteringen: bij een overkapping ook palen of wanden, een echte trap (helling) voor een toegangstrap, en een hoogte uit het AHN.
 4. **3D-hagen.** Collecties `vegetatieobject_lijn` en `vegetatieobject_vlak`, soort `haag`: als morph met een aangenomen hoogte.
 5a. **Bomen in groenvlakken: gebouwd in 0.24.0** (wacht op de test van de gebruiker). Maten en afstanden zijn aannames die je in het palet kunt aanpassen (standaardwaarden in `groen.py`); mogelijk later per soort een eigen object en een hoogte uit het AHN.

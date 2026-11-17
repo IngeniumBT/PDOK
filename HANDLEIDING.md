@@ -1,6 +1,6 @@
 # PDOK Import voor Archicad - handleiding voor proefgebruikers
 
-Versie 0.24.1 (proefversie). Deze add-on haalt gegevens van PDOK (de BGT, het kadaster, bestemmingsplannen en de 3D Basisvoorziening) op
+Versie 0.25.0 (proefversie). Deze add-on haalt gegevens van PDOK (de BGT, het kadaster, bestemmingsplannen en de 3D Basisvoorziening) op
 en zet ze in je Archicad-project: als lijnen en vlakken, als 3D-gebouwen, als terrein en als bomen.
 
 ## Wat heb je nodig
@@ -53,7 +53,7 @@ Een eigen tabel maak je met **Stijlbestand openen** (onder *Hulpmiddelen en inst
 
 **Lagen (2D)** - de BGT en het kadaster, als vlakken en lijnen op een eigen laag per soort (bijvoorbeeld `BGT_wegdeel`, `KAD_perceel`). Rechts van
 elke laag kun je een **pennummer** invullen; leeg is de standaardpen. *Alles aan* en *Alles uit* per groep. *Perceelnummers als tekst* zet ook de
-nummers bij de percelen. *Ook viaducten en tunnels (boven en onder maaiveld)* neemt de BGT-objecten mee die niet op maaiveldhoogte liggen (standaard uit: ze liggen in 2D boven op wat eronder ligt). De vlakken worden altijd gekleurd op functie en fysiek voorkomen. Het blok *BGT* is ingeklapt; de kopregel toont hoeveel lagen aan staan en heeft de knoppen *Alles aan* en *Alles uit*. Klik op de kop om de lagen en pennen te zien.
+nummers bij de percelen. *Straatnamen als tekst* zet de straatnamen uit de BGT (de labelpunten van de openbare ruimte) als tekst op de laag `BGT_straatnamen`: hoogte 3,5, pen 1, in het midden uitgelijnd en gedraaid zoals het label in de BGT staat (een tekst die ondersteboven zou staan, wordt een halve slag gedraaid zodat hij leesbaar blijft). Een straat met meer labelpunten krijgt meer teksten. Nogmaals importeren maakt ze dubbel: wis eerst de laag. Het log toont de velden van een label, zodat je kunt zien waar de naam en de hoek vandaan komen. Huisnummers worden niet gemaakt. *Ook viaducten en tunnels (boven en onder maaiveld)* neemt de BGT-objecten mee die niet op maaiveldhoogte liggen (standaard uit: ze liggen in 2D boven op wat eronder ligt). De vlakken worden altijd gekleurd op functie en fysiek voorkomen. Het blok *BGT* is ingeklapt; de kopregel toont hoeveel lagen aan staan en heeft de knoppen *Alles aan* en *Alles uit*. Klik op de kop om de lagen en pennen te zien.
 
 **Bestemmingsplan** - kies met *Kies gml-bestand* een IMRO-bestand (GML) van je bestemmingsplan; *Wissen* haalt het weer weg. *Maatvoering (bouwhoogte e.d.) als tekst*
 zet de maatvoeringen als tekst in de tekening. Het bestemmingsplan komt in de plattegrond.
