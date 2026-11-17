@@ -148,29 +148,52 @@ def bestaande_ids(k, laag):
     return {x.get("id") for x in d if isinstance(x, dict) and x.get("layerIndex") == laag and x.get("id")}
 
 
+GROEP = 25                     # zoveel bouwdelen in een opdracht aan Archicad (een voor een is veel langzamer)
+
+
 def maak_alle(k, items, voortgang=None, stop=None):
+    """Maakt de bouwdelen in groepen. Wat in een groep niet lukt, wordt apart opnieuw geprobeerd, zo nodig met boven- en onderkant als driehoeken."""
     uit = {"gelukt": 0, "mislukt": 0, "fouten": Counter(), "met_driehoeken": 0}
-    for i, it in enumerate(items):
+
+    def lukt(e):
+        return bool(e) and "elementId" in e
+
+    def payload(it, basis=None, body=None):
+        return {"basePoint": basis or it["basis"], "body": body or it["body"], "layerIndex": it["laag"], "id": it["id"]}
+
+    def een_voor_een(it, eerdere_fout=None):
+        r = k.tapir("CreateMorphs", {"morphsData": [payload(it)]})
+        e = (k.pak(r).get("elements", [None]) or [None])[0] if r.get("succeeded") else None
+        if not lukt(e):
+            alt = lichaam(it["buiten"], it["gaten"], it["z_onder"], it["z_boven"], it["oppervlakken"], kappen_als_driehoeken=True)
+            if alt:                                          # de boven- en onderkant als driehoeken
+                r2 = k.tapir("CreateMorphs", {"morphsData": [payload(it, alt[0], alt[1])]})
+                e2 = (k.pak(r2).get("elements", [None]) or [None])[0] if r2.get("succeeded") else None
+                if lukt(e2):
+                    uit["met_driehoeken"] += 1
+                    uit["gelukt"] += 1
+                    return
+        uit["mislukt"] += 1
+        uit["fouten"][str((e or {}).get("error", r.get("error", r)) if not eerdere_fout else eerdere_fout)[:150]] += 1
+
+    for i in range(0, len(items), GROEP):
         if stop and stop():
             print("   Gestopt op verzoek.")
             break
-        if voortgang and i % 10 == 0:
+        if voortgang:
             voortgang(f"Bouwdelen: {i} van {len(items)}", i / max(1, len(items)))
-        payload = {"basePoint": it["basis"], "body": it["body"], "layerIndex": it["laag"], "id": it["id"]}
-        r = k.tapir("CreateMorphs", {"morphsData": [payload]})
-        e = (k.pak(r).get("elements", [None]) or [None])[0] if r.get("succeeded") else None
-        if not (e and "elementId" in e):
-            alt = lichaam(it["buiten"], it["gaten"], it["z_onder"], it["z_boven"], it["oppervlakken"], kappen_als_driehoeken=True)
-            if alt:                                          # de boven- en onderkant als driehoeken
-                r = k.tapir("CreateMorphs", {"morphsData": [dict(payload, basePoint=alt[0], body=alt[1])]})
-                e = (k.pak(r).get("elements", [None]) or [None])[0] if r.get("succeeded") else None
-                if e and "elementId" in e:
-                    uit["met_driehoeken"] += 1
-        if e and "elementId" in e:
-            uit["gelukt"] += 1
-        else:
-            uit["mislukt"] += 1
-            uit["fouten"][str((e or {}).get("error", r.get("error", r)))[:150]] += 1
+        deel = items[i:i + GROEP]
+        r = k.tapir("CreateMorphs", {"morphsData": [payload(it) for it in deel]})
+        elementen = k.pak(r).get("elements", []) if r.get("succeeded") else []
+        if len(elementen) != len(deel):                      # de hele groep mislukte: een voor een
+            for it in deel:
+                een_voor_een(it, None if r.get("succeeded") else r.get("error", r))
+            continue
+        for it, e in zip(deel, elementen):
+            if lukt(e):
+                uit["gelukt"] += 1
+            else:
+                een_voor_een(it, (e or {}).get("error"))
     return uit
 
 
