@@ -1680,6 +1680,11 @@ PAGINA = """<!DOCTYPE html>
  #importeer{padding:12px;font-size:16px}
  #actie{flex:0 0 auto;background:#f4f4f4;border-top:1px solid #c4c4c4;box-shadow:0 -3px 6px rgba(0,0,0,.08);padding:8px 12px 10px;z-index:4}
  #actie button{margin-top:0}
+ details.groep>summary.groepkop{cursor:pointer;list-style:none}
+ details.groep>summary.groepkop::-webkit-details-marker{display:none}
+ details.groep>summary.groepkop>b::before{content:"\\25B6  ";font-size:11px}
+ details.groep[open]>summary.groepkop>b::before{content:"\\25BC  "}
+ details.groep[open]>summary.groepkop{margin-bottom:4px}
  details.uitleg summary,#geavanceerd3d summary{cursor:pointer;color:#163a69;font-size:12.5px;margin:4px 0}
 </style></head><body>
 <div id="paneel">
@@ -1715,7 +1720,6 @@ PAGINA = """<!DOCTYPE html>
   <div class="kaartkop">2D &middot; BGT en Kadaster</div>
   <div class="klein" style="margin:0 0 4px">Pen: leeg = standaard</div>
   <div id="lagen">Lagen laden...</div>
-  <label class="optie"><input type="checkbox" id="stijl_2d" checked> <b>Kleuren per soort</b></label>
   <label class="optie"><input type="checkbox" id="alleniveaus"> Ook viaducten en tunnels (boven en onder maaiveld)</label>
  </div>
 
@@ -1737,9 +1741,6 @@ PAGINA = """<!DOCTYPE html>
    <label><input type="checkbox" id="drie_bouwdelen" title="Overig bouwwerk en gebouwinstallatie uit de BGT: overkappingen, open loodsen, luifels, schuren, tanks, bordessen. De BGT heeft hiervoor geen hoogte; de hoogte per soort staat als aanname in de stijltabel."> Overige bouwdelen</label>
   </div>
   <div id="sub3d" class="sub" style="display:none">
-   <div id="sub_terrein" style="display:none">
-    <label class="klein" style="display:block;margin:2px 0"><input type="checkbox" id="drie_dekken" checked> Terrein: viaducten en bruggen meenemen (als dun dek)</label>
-   </div>
    <div id="sub_bomen" style="display:none">
     <div class="klein" style="margin:4px 0 2px">Bomen: bibliotheekobject</div>
     <div style="position:relative">
@@ -1757,7 +1758,6 @@ PAGINA = """<!DOCTYPE html>
     <div id="lampstatus" class="klein" style="margin:2px 0 2px"></div>
    </div>
   </div>
-  <label class="optie"><input type="checkbox" id="stijl_3d" checked> <b>Kleuren per soort</b></label>
   <details id="geavanceerd3d">
    <summary>Geavanceerd (onderkant, naden)</summary>
    <div class="rij" style="margin:6px 0;align-items:center">
@@ -1960,19 +1960,18 @@ function nogNiet(ids) {                                          // een onderdee
   });
 }
 if (!BESCHIKBAAR.gebouwen) nogNiet(['drie_gebouwen']);
-if (!BESCHIKBAAR.terrein) nogNiet(['drie_terrein', 'drie_skirt', 'drie_diepte', 'drie_dekken', 'drie_naadmax', 'drie_controle', 'drie_wis', 'drie_kwaliteit', 'drie_scheidingen_meten', 'drie_soorten']);
+if (!BESCHIKBAAR.terrein) nogNiet(['drie_terrein', 'drie_skirt', 'drie_diepte', 'drie_naadmax', 'drie_controle', 'drie_wis', 'drie_kwaliteit', 'drie_scheidingen_meten', 'drie_soorten']);
 if (!BESCHIKBAAR.tekst) nogNiet(['planteksten']);
 if (!BESCHIKBAAR.lichtmasten) nogNiet(['drie_lichtmasten', 'drie_lichtobject']);
 if (!BESCHIKBAAR.bouwdelen) nogNiet(['drie_bouwdelen']);
 // Subopties verschijnen pas als het vinkje erboven aan staat; de maatvoering van het plan kan pas als er een plan is gekozen.
 function werkSubopties() {
-  const t = document.getElementById('drie_terrein').checked, b = document.getElementById('drie_bomen').checked, l = document.getElementById('drie_lichtmasten').checked;
-  document.getElementById('sub_terrein').style.display = t ? 'block' : 'none';
+  const b = document.getElementById('drie_bomen').checked, l = document.getElementById('drie_lichtmasten').checked;
   document.getElementById('sub_bomen').style.display = b ? 'block' : 'none';
   document.getElementById('sub_lichtmasten').style.display = l ? 'block' : 'none';
-  document.getElementById('sub3d').style.display = (t || b || l) ? 'block' : 'none';
+  document.getElementById('sub3d').style.display = (b || l) ? 'block' : 'none';
 }
-['drie_terrein', 'drie_bomen', 'drie_lichtmasten'].forEach(id => document.getElementById(id).addEventListener('change', werkSubopties));
+['drie_bomen', 'drie_lichtmasten'].forEach(id => document.getElementById(id).addEventListener('change', werkSubopties));
 function zetPlanTeksten() {
   const e = document.getElementById('planteksten');
   e.disabled = !planToken || e.dataset.nietbeschikbaar === '1';
@@ -1984,6 +1983,15 @@ const MAX_ZIJDE = __MAX_ZIJDE__;
 const planInfo = document.getElementById('planinfo');
 const vinkjes = () => [...doos.querySelectorAll('input.laagvink')];
 
+// Het BGT-blok is ingeklapt: de kopregel laat zien hoeveel lagen er aan staan.
+function werkBgtNota() {
+  const g = document.getElementById('bgtgroep'), n = document.getElementById('bgtnota');
+  if (!g || !n) return;
+  const v = [...g.querySelectorAll('input.laagvink')], aan = v.filter(x => x.checked).length;
+  n.textContent = aan === v.length ? ' (alle lagen aan)' : ' (' + aan + ' van ' + v.length + ' lagen aan)';
+}
+doos.addEventListener('change', werkBgtNota);
+
 const groepVinkjes = d => [...d.querySelectorAll('input[type=checkbox]')];
 
 fetch('/lagen').then(r => r.json()).then(lijst => {
@@ -1992,12 +2000,19 @@ fetch('/lagen').then(r => r.json()).then(lijst => {
   lijst.forEach(l => {
     const sleutel = l.bron || 'overig';
     if (!groepen[sleutel]) {
-      const groep = document.createElement('div');
+      const inklapbaar = (sleutel === 'bgt');             // alleen het BGT-blok klapt in; standaard dicht (alle lagen staan aan)
+      const groep = document.createElement(inklapbaar ? 'details' : 'div');
       groep.className = 'groep';
-      const kop = document.createElement('div');
+      const kop = document.createElement(inklapbaar ? 'summary' : 'div');
       kop.className = 'groepkop';
       const titel = document.createElement('b');
       titel.textContent = l.bronnaam || sleutel;
+      if (inklapbaar) {
+        const nota = document.createElement('span');
+        nota.className = 'klein'; nota.style.fontWeight = '400'; nota.id = 'bgtnota';
+        titel.appendChild(nota);
+        groep.id = 'bgtgroep';
+      }
       const knoppen = document.createElement('span');
       const aan = document.createElement('button');
       aan.textContent = 'Alles aan';
@@ -2022,8 +2037,8 @@ fetch('/lagen').then(r => r.json()).then(lijst => {
         groep.appendChild(extra);
       }
       doos.appendChild(groep);
-      aan.onclick = () => groepVinkjes(inhoud).forEach(v => v.checked = true);
-      uit.onclick = () => groepVinkjes(inhoud).forEach(v => v.checked = false);
+      aan.onclick = e => { e.preventDefault(); e.stopPropagation(); groepVinkjes(inhoud).forEach(v => v.checked = true); werkBgtNota(); };     // preventDefault: de knop staat in de klapkop
+      uit.onclick = e => { e.preventDefault(); e.stopPropagation(); groepVinkjes(inhoud).forEach(v => v.checked = false); werkBgtNota(); };
       groepen[sleutel] = inhoud;
     }
     const rij = document.createElement('div');
@@ -2042,7 +2057,8 @@ fetch('/lagen').then(r => r.json()).then(lijst => {
     rij.appendChild(pen);
     groepen[sleutel].appendChild(rij);
   });
-  instellingen().then(pasLagenToe);                                // de onthouden vinkjes en pennen terugzetten
+  werkBgtNota();
+  instellingen().then(o => { pasLagenToe(o); werkBgtNota(); });                                // de onthouden vinkjes en pennen terugzetten
 }).catch(e => { doos.textContent = 'Lagen laden mislukt: ' + e; });
 
 function wisPlan() {
@@ -2191,7 +2207,7 @@ document.getElementById('importeer').onclick = async () => {
   const terreinnaad = true;                                        // de naadsluiting staat altijd aan
   const terreinoverslaan = '';
   const terreinskirt = document.getElementById('drie_skirt').value;
-  const terreindekken = document.getElementById('drie_dekken').checked;
+  const terreindekken = true;                          // viaducten en bruggen: altijd als dun dek
   const naadmaxCm = parseFloat(String(document.getElementById('drie_naadmax').value).replace(',', '.'));
   const terreinnaadmax = isFinite(naadmaxCm) && naadmaxCm >= 0 ? naadmaxCm / 100 : null;
   const hoogtemodus = document.getElementById('hoogte_nul').checked ? 'nul' : 'bron';      // bron: NAP uit de 3D Basisvoorziening; nul: vlak op 0 m
@@ -2200,7 +2216,7 @@ document.getElementById('importeer').onclick = async () => {
   const scheidingen = document.getElementById('drie_scheidingen').checked;
   const lichtmasten = document.getElementById('drie_lichtmasten').checked, lichtobject = document.getElementById('drie_lichtobject').value;
   const bouwdelen = document.getElementById('drie_bouwdelen').checked;
-  const stijl2d = document.getElementById('stijl_2d').checked, stijl3d = document.getElementById('stijl_3d').checked;
+  const stijl2d = true, stijl3d = true;                // kleuren per soort: altijd aan
   const verfijnd2d = true;                                         // de 2D-vlakken staan altijd op lagen per soort
   const boomobject = document.getElementById('drie_boomobject').value;
   if (!lagen.length && !plan && !gebouwen && !terrein && !bomen && !scheidingen && !lichtmasten && !bouwdelen) {
