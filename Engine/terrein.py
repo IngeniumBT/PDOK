@@ -27,6 +27,8 @@ Opties:
                          aansluiten: hoogteverschillen en net-niet-samenvallende punten, met ligging en ID's
     --venster-test       (geen gebied nodig, Archicad open) test of in het actieve venster een Mesh en een Morph
                          kunnen worden aangemaakt; draai het met het 3D-venster actief en met de plattegrond actief
+    --uitschieter X      hoekpunten die meer dan X meter (standaard 0,30; 0 = uit) afwijken van al hun buren, aan dezelfde kant,
+                         worden gelijkgetrokken met hun buren (losse pieken en dalen in de bron)
     --naadmax X          grotere hoogteverschillen dan X meter (standaard 0,10) worden niet gelijkgetrokken: dat
                          zijn echte sprongen, zoals een viaduct, een kade of een trap
     --naad X             hoe de hoogte op een naad wordt bepaald: gemiddelde (standaard), weg, laagste, hoogste.
@@ -1950,7 +1952,67 @@ def bouw_ondergrond(objecten, gebied, z_verschuiving=0.0, diepte=ONDERGROND_DIEP
 # ----------------------------------------------------------------- Uitvoer
 
 
-def verzamel(gebied, typen, met_bruggen, voetafdrukken=False, sla_over=()):     # typen None: alle soorten objecten
+UITSCHIETER_STANDAARD = 0.30   # m: een hoekpunt dat meer dan dit afwijkt van al zijn buren is een uitschieter; 0 = uit
+
+
+def gladstrijken_uitschieters(data, X, Y, Z, grens=UITSCHIETER_STANDAARD, passen=2):
+    """Strijkt losse pieken en dalen glad in de hoogtes van een CityJSON-terreinbestand (Z wordt ter plekke aangepast).
+
+    Een hoekpunt is een uitschieter als het meer dan `grens` afwijkt van de mediaan van zijn buren (alle punten waarmee het in een
+    driehoek zit, ook in andere objecten), al zijn buren liggen minstens de helft van `grens` aan dezelfde kant, en de buren liggen
+    onderling binnen 3 x `grens` (een steile of rommelige plek blijft zoals hij is). Het krijgt dan de mediaan van zijn buren. Een echte stap (stoeprand, kade, talud, de rand van een verhoogde weg) blijft staan: daar liggen
+    altijd ook buren op dezelfde hoogte. Bruggen worden niet aangeraakt.
+    Geeft (aantal punten bekeken, aantal aangepast, voorbeelden [(x, y, van, naar)])."""
+    if not grens or grens <= 0:
+        return 0, 0, []
+    buren = defaultdict(set)
+    for o in data.get("CityObjects", {}).values():
+        if o.get("type") not in OBJECT_TYPEN or o.get("type") in BRUGTYPEN or (o.get("attributes") or {}).get("hoortbijbrug"):
+            continue
+        for g in o.get("geometry") or []:
+            for vl in D.oppervlakken_van(g):
+                if not vl or len(vl[0]) < 3:
+                    continue
+                r = vl[0]
+                for k in range(1, len(r) - 1):
+                    a, b, c = r[0], r[k], r[k + 1]
+                    buren[a].update((b, c))
+                    buren[b].update((a, c))
+                    buren[c].update((a, b))
+    aangepast = 0
+    voorbeelden = []
+    halve = grens / 2
+    for _ in range(passen):
+        wijzig = []
+        for i, ns in buren.items():
+            if len(ns) < 3:
+                continue
+            z = Z[i]
+            zs = sorted(Z[j] for j in ns)
+            med = zs[len(zs) // 2] if len(zs) % 2 else (zs[len(zs) // 2 - 1] + zs[len(zs) // 2]) / 2
+            if abs(z - med) <= grens or zs[-1] - zs[0] > 3 * grens:      # de buren moeten onderling een rustig beeld geven (geen steile, rommelige plek)
+                continue
+            if z > med and zs[-1] <= z - halve:
+                wijzig.append((i, med))
+            elif z < med and zs[0] >= z + halve:
+                wijzig.append((i, med))
+        if not wijzig:
+            break
+        for i, nieuw in wijzig:
+            if len(voorbeelden) < 3:
+                voorbeelden.append((X[i], Y[i], Z[i], nieuw))
+            Z[i] = nieuw
+        aangepast += len(wijzig)
+    return len(buren), aangepast, voorbeelden
+
+
+def meld_uitschieters(bekeken, aangepast, voorbeelden, grens):
+    print(f"   Uitschieters (afwijking > {grens * 100:g} cm van alle buren): {aangepast} van {bekeken} hoekpunten gladgestreken")
+    for x, y, van, naar in voorbeelden:
+        print(f"      bijvoorbeeld bij ({x:.1f}, {y:.1f}): {van:.2f} m wordt {naar:.2f} m")
+
+
+def verzamel(gebied, typen, met_bruggen, voetafdrukken=False, sla_over=(), uitschieter=0.0):     # typen None: alle soorten objecten
     tegels = D.kies_tegels(gebied, COLLECTIE)
     print(f"{len(tegels)} tegel(s) voor dit gebied:")
     for p in tegels:
@@ -1974,7 +2036,10 @@ def verzamel(gebied, typen, met_bruggen, voetafdrukken=False, sla_over=()):     
                                or bereik[3] < gebied[1] or bereik[1] > gebied[3]):
                     print("   ligt buiten het gebied, overgeslagen")
                     continue
-                gevonden, (X, Y, Z) = lees_objecten(data, gebied, typen, met_bruggen, sla_over)
+                X, Y, Z = vertexlijsten(data)
+                if uitschieter and uitschieter > 0:
+                    meld_uitschieters(*gladstrijken_uitschieters(data, X, Y, Z, uitschieter), uitschieter)
+                gevonden, (X, Y, Z) = lees_objecten(data, gebied, typen, met_bruggen, sla_over, xyz=(X, Y, Z))
                 if voetafdrukken:
                     voet += lees_voetafdrukken(data, gebied, X, Y)
                 print(f"   {len(gevonden)} terreinobjecten raken het gebied (CityJSON {data.get('version')})")
@@ -2174,6 +2239,8 @@ def importeer_terrein_blokken(k, gebied, opties):
                 print("   ligt buiten het gebied, overgeslagen")
                 continue
             X, Y, Z = vertexlijsten(data)
+            if opties.get("uitschieter"):
+                meld_uitschieters(*gladstrijken_uitschieters(data, X, Y, Z, opties["uitschieter"]), opties["uitschieter"])
             index = indexeer_tegel(data, X, Y, gebied, opties["typen"], opties["bruggen"], set(opties["sla_over"]))
             print(f"   {sum(len(v) for v in index.values())} terreinobjecten in {len(index)} blokken voor dit gebied")
             for sleutel_blok in sorted(index):
@@ -2231,7 +2298,7 @@ def lees_argumenten(argumenten):
               "stijl": "--stijl" in argumenten, "dekken": "--geen-dekken" not in argumenten, "dekdikte": DEK_DIKTE,
               "controle": "--controle" in argumenten, "ondergrond": "--ondergrond" in argumenten,
               "raster": None, "naad": "gemiddelde", "marge": NAAD_MARGE_STANDAARD, "ankers": "--geen-ankers" not in argumenten,
-              "naadmax": NAAD_MAX_VERSCHIL, "naadsluiting": "--geen-naadsluiting" not in argumenten,
+              "naadmax": NAAD_MAX_VERSCHIL, "uitschieter": UITSCHIETER_STANDAARD, "naadsluiting": "--geen-naadsluiting" not in argumenten,
               "max": None, "z": 0.0, "typen": list(OBJECT_TYPEN)}
     getallen = []
     if not opties["dekken"]:
@@ -2269,6 +2336,10 @@ def lees_argumenten(argumenten):
             continue
         if a == "--sla-over" and i + 1 < len(argumenten):
             opties["sla_over"].append(argumenten[i + 1].strip().lower())
+            i += 2
+            continue
+        if a == "--uitschieter" and i + 1 < len(argumenten):
+            opties["uitschieter"] = float(argumenten[i + 1])
             i += 2
             continue
         if a == "--naadmax" and i + 1 < len(argumenten):
@@ -2354,7 +2425,7 @@ def hoofd(argumenten):
         return bomen_na_terrein(gebied, opties, importeer_terrein_blokken(_kaart(), gebied, opties))
 
     objecten, voetafdrukken = verzamel(gebied, opties["typen"], opties["bruggen"], opties["controle"],
-                                       set(opties["sla_over"]))
+                                       set(opties["sla_over"]), opties.get("uitschieter") or 0.0)
     if not objecten:
         print("Geen terreinobjecten gevonden in dit gebied.")
         return 1
@@ -3623,7 +3694,7 @@ def wis_terrein(k):
     return leegmaken(zonder_vraag=True)
 
 
-def importeer_terrein(k, gebied, oppervlakken=True, naadsluiting=True, sla_over=(), skirt=None, diepte=None, dekken=True, vlak=None, naadmax=None, stijlen=False):
+def importeer_terrein(k, gebied, oppervlakken=True, naadsluiting=True, sla_over=(), skirt=None, diepte=None, dekken=True, vlak=None, naadmax=None, stijlen=False, uitschieter=None):
     """Voor het kaartvenster: haalt het terrein voor het gebied (xmin, ymin, xmax, ymax in RD) op en maakt het
     aan als Meshes. naadsluiting zet de naadsluiting aan of uit; sla_over is een lijst BGT-typen (bgt_type) die
     worden overgeslagen. Maakt ook de terreinoppervlakken aan. k is de kaart-module.
@@ -3648,6 +3719,11 @@ def importeer_terrein(k, gebied, oppervlakken=True, naadsluiting=True, sla_over=
     try:
         if naadmax is not None and float(naadmax) >= 0:
             argumenten += ["--naadmax", repr(float(naadmax))]
+    except (TypeError, ValueError):
+        pass
+    try:
+        if uitschieter is not None and float(uitschieter) >= 0:
+            argumenten += ["--uitschieter", repr(float(uitschieter))]
     except (TypeError, ValueError):
         pass
     if stijlen:

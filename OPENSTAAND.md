@@ -1,6 +1,6 @@
 # Openstaande punten en bevindingen (PDOK Import)
 
-Dit bestand legt vast wat er nog open staat en wat we hebben gemeten, zodat het later opgepakt kan worden. Bijgewerkt bij versie 0.25.0.
+Dit bestand legt vast wat er nog open staat en wat we hebben gemeten, zodat het later opgepakt kan worden. Bijgewerkt bij versie 0.26.0.
 
 ## Wat af is
 Kaart en palet, 2D-lagen (BGT, kadaster, bestemmingsplan), teksten, bomen (met zoekvak), 3D-gebouwen (LoD 2.2, met terugvalstappen en zoeken naar de kleinste groep driehoeken),
@@ -44,4 +44,5 @@ Aandachtspunt: bomen, palen en straatmeubilair zijn in de BGT zogenoemde plus-ob
 - **Scheidingen** in dit gebied: 11 muren, onderkant gemiddeld +1 cm op het terrein in de bron, alle 11 met open randen (alleen zijkanten en bovenkant), geen spleten of hoogteverschillen op de hoeken.
 
 ## Naadsluiting
+Uitschieters (0.26.0): `terrein.gladstrijken_uitschieters`, standaard 0,30 m, instelbaar in het palet (0 = uit). Gemeten op tegel 260000_482000 (970.000 hoekpunten): bij 0,30 m worden 988 hoekpunten (0,10 %) aangepast (gemiddeld 0,39 m, hoogstens 1,5 m); in 300 x 300 m rond 260250 / 482850 zijn dat er 27. De grote sprongen (37 posities in dat gebied, 0,5 tot 0,9 m, op twee plekken 2,5 en 3,7 m, meestal weg tegen groen) zijn echte discontinuïteiten in de bron en blijven bestaan. Mogelijke vervolgstappen: de spleten dichten met zijwanden, of een talud van 0,3 tot 1 m tussen weg en groen.
 De drempel `NAAD_MAX_VERSCHIL` staat op 0,10 m (was 0,75 m; een stap van 50 cm werd daardoor platgetrokken). Instelbaar in het palet; zie README 0.17.4.

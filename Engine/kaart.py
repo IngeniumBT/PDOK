@@ -1392,7 +1392,7 @@ def importeer_lichtmasten_uit_venster(gebied, object_naam, vast_niveau=None):
         return 0
 
 
-def importeer_terrein_uit_venster(gebied, naadsluiting=True, overslaan="", skirt=None, diepte=None, dekken=True, vlak=None, naadmax=None, stijlen=False):
+def importeer_terrein_uit_venster(gebied, naadsluiting=True, overslaan="", skirt=None, diepte=None, dekken=True, vlak=None, naadmax=None, stijlen=False, uitschieter=None):
     if terrein is None:
         print("3D-terrein overgeslagen: terrein.py ontbreekt.")
         return 0
@@ -1408,7 +1408,7 @@ def importeer_terrein_uit_venster(gebied, naadsluiting=True, overslaan="", skirt
         if sla_over:
             print("Typen die worden overgeslagen:", ", ".join(sla_over))
         return terrein.importeer_terrein(sys.modules[__name__], gebied, naadsluiting=naadsluiting,
-                                         sla_over=sla_over, skirt=skirt, diepte=diepte, dekken=dekken, vlak=vlak, naadmax=naadmax, stijlen=stijlen)
+                                         sla_over=sla_over, skirt=skirt, diepte=diepte, dekken=dekken, vlak=vlak, naadmax=naadmax, stijlen=stijlen, uitschieter=uitschieter)
     except Exception as fout:
         print("3D-terrein importeren mislukt:", fout)
         return 0
@@ -1637,7 +1637,7 @@ def _importeer(aanvraag, deel="alles"):
             aanvraag.get("terreinoverslaan", ""), aanvraag.get("terreinskirt"), aanvraag.get("terreindiepte"),
             bool(aanvraag.get("terreindekken", True)),
             ("eigen", 0.0) if aanvraag.get("hoogtemodus") == "nul" else None, aanvraag.get("terreinnaadmax"),
-            bool(aanvraag.get("stijl3d")))
+            bool(aanvraag.get("stijl3d")), aanvraag.get("terreinuitschieter"))
     if GEOREFERENTIE == "rd":
         midden_x = midden_y = 0
     else:
@@ -1934,6 +1934,7 @@ PAGINA = """<!DOCTYPE html>
     <select id="drie_skirt" style="flex:1 1 auto;min-width:0"><option value="volume" selected>als volume (massief)</option><option value="zijvlakken">met zijvlakken</option><option value="oppervlak">alleen het bovenvlak</option></select>
     <input type="text" id="drie_diepte" value="1" title="Diepte van de onderkant onder het laagste punt, in meter" style="flex:0 0 52px;width:52px"> <span class="klein">m</span>
    </div>
+   <label class="klein" style="display:block;margin:2px 0">Uitschieters: hoekpunten die meer dan <input type="text" id="drie_uitschieter" value="30" title="Een hoekpunt van het terrein dat meer dan dit (in centimeters) afwijkt van al zijn buren, en waarvan alle buren aan dezelfde kant liggen, wordt gelijkgetrokken met zijn buren. Echte stappen (een stoeprand, kade of verhoogde weg) blijven staan. 0 = uit." style="width:40px"> cm afwijken van hun buren gladstrijken (0 = uit)</label>
    <label class="klein" style="display:block;margin:2px 0">Naden: hoogteverschillen tot <input type="text" id="drie_naadmax" value="10" title="Meshes die elkaar raken, worden op hun rand gelijk gemaakt als het hoogteverschil kleiner is dan dit (in centimeters). Een groter verschil blijft zoals in de bron (een stoeprand, kade of talud)." style="width:40px"> cm gelijktrekken; grotere stappen blijven zoals in de bron</label>
   </details>
   <div class="klein">Eerste keer ophalen kan een minuut duren.</div>
@@ -2133,7 +2134,7 @@ function nogNiet(ids) {                                          // een onderdee
   });
 }
 if (!BESCHIKBAAR.gebouwen) nogNiet(['drie_gebouwen']);
-if (!BESCHIKBAAR.terrein) nogNiet(['drie_terrein', 'drie_skirt', 'drie_diepte', 'drie_naadmax', 'drie_controle', 'drie_wis', 'drie_kwaliteit', 'drie_scheidingen_meten', 'drie_soorten']);
+if (!BESCHIKBAAR.terrein) nogNiet(['drie_terrein', 'drie_skirt', 'drie_diepte', 'drie_naadmax', 'drie_uitschieter', 'drie_controle', 'drie_wis', 'drie_kwaliteit', 'drie_scheidingen_meten', 'drie_soorten']);
 if (!BESCHIKBAAR.tekst) nogNiet(['planteksten']);
 if (!BESCHIKBAAR.lichtmasten) nogNiet(['drie_lichtmasten', 'drie_lichtobject']);
 if (!BESCHIKBAAR.groen) nogNiet(['drie_groen', 'drie_groenobject', 'drie_groen_bos', 'drie_groen_heesters', 'groen_bos_afstand', 'groen_bos_kroon', 'groen_bos_hoogte', 'groen_heesters_afstand', 'groen_heesters_kroon', 'groen_heesters_hoogte']);
@@ -2385,6 +2386,8 @@ document.getElementById('importeer').onclick = async () => {
   const terreindekken = true;                          // viaducten en bruggen: altijd als dun dek
   const naadmaxCm = parseFloat(String(document.getElementById('drie_naadmax').value).replace(',', '.'));
   const terreinnaadmax = isFinite(naadmaxCm) && naadmaxCm >= 0 ? naadmaxCm / 100 : null;
+  const uitschieterCm = parseFloat(String(document.getElementById('drie_uitschieter').value).replace(',', '.'));
+  const terreinuitschieter = isFinite(uitschieterCm) && uitschieterCm >= 0 ? uitschieterCm / 100 : null;      // m; leeg of ongeldig: de standaardwaarde
   const hoogtemodus = document.getElementById('hoogte_nul').checked ? 'nul' : 'bron';      // bron: NAP uit de 3D Basisvoorziening; nul: vlak op 0 m
   const terreindiepte = parseFloat(String(document.getElementById('drie_diepte').value).replace(',', '.')) || 1;
   const bomen = document.getElementById('drie_bomen').checked;
@@ -2432,7 +2435,7 @@ document.getElementById('importeer').onclick = async () => {
   try {
     const r = await fetch('/import', {method: 'POST',
       body: JSON.stringify({...gebied, lagen, alleniveaus, pennen, plan, planteksten, perceelteksten,
-                            gebouwen, gebouwenmateriaal, terrein, terreinnaad, terreinoverslaan, terreinskirt, terreindiepte, terreindekken, terreinnaadmax, hoogtemodus,
+                            gebouwen, gebouwenmateriaal, terrein, terreinnaad, terreinoverslaan, terreinskirt, terreindiepte, terreindekken, terreinnaadmax, terreinuitschieter, hoogtemodus,
                             bomen, boomobject, scheidingen, lichtmasten, lichtobject, bouwdelen, straatnamen, groen, groenobject, groenbos, groenheesters, groenmaten, stijl2d, stijl3d, verfijnd2d})});
     const d = await r.json();
     if (d.fout) { status.textContent = 'Fout: ' + d.fout; return; }
