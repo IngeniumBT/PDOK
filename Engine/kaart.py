@@ -1680,7 +1680,9 @@ PAGINA = """<!DOCTYPE html>
  #importeer{padding:12px;font-size:16px}
  #actie{flex:0 0 auto;background:#f4f4f4;border-top:1px solid #c4c4c4;box-shadow:0 -3px 6px rgba(0,0,0,.08);padding:8px 12px 10px;z-index:4}
  #actie button{margin-top:0}
- details.groep>summary.groepkop{cursor:pointer;list-style:none}
+ details.groep>summary.groepkop{cursor:pointer;list-style:none;flex-wrap:nowrap}
+ details.groep>summary.groepkop>span:last-child{flex:0 0 auto;white-space:nowrap}
+ details.groep>summary.groepkop>b{min-width:0}
  details.groep>summary.groepkop::-webkit-details-marker{display:none}
  details.groep>summary.groepkop>b::before{content:"\\25B6  ";font-size:11px}
  details.groep[open]>summary.groepkop>b::before{content:"\\25BC  "}
@@ -1988,7 +1990,7 @@ function werkBgtNota() {
   const g = document.getElementById('bgtgroep'), n = document.getElementById('bgtnota');
   if (!g || !n) return;
   const v = [...g.querySelectorAll('input.laagvink')], aan = v.filter(x => x.checked).length;
-  n.textContent = aan === v.length ? ' (alle lagen aan)' : ' (' + aan + ' van ' + v.length + ' lagen aan)';
+  n.textContent = aan === v.length ? ' (alle lagen aan)' : ' (' + aan + ' van ' + v.length + ' aan)';
 }
 doos.addEventListener('change', werkBgtNota);
 
