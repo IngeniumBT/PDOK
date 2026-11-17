@@ -1257,7 +1257,7 @@ def importeer_bouwdelen_uit_venster(gebied, vast_niveau=None, stijlen=False):
         return 0
 
 
-def importeer_groen_uit_venster(gebied, object_naam, bos, heesters, vast_niveau=None):
+def importeer_groen_uit_venster(gebied, object_naam, bos, heesters, vast_niveau=None, maten=None):
     if groen is None or bomen is None:
         print("3D-groenvlakken overgeslagen: groen.py (met bomen.py, terrein.py, drie_d.py en stijl.py) staat niet naast kaart.py.")
         return 0
@@ -1268,7 +1268,7 @@ def importeer_groen_uit_venster(gebied, object_naam, bos, heesters, vast_niveau=
     try:
         uitkomst = groen.plaats_groen(
             sys.modules[__name__], gebied,
-            {"object": (object_naam or "").strip() or groen.STANDAARD_OBJECT, "z": vast_niveau, "bos": bool(bos), "heesters": bool(heesters)},
+            {"object": (object_naam or "").strip() or groen.STANDAARD_OBJECT, "z": vast_niveau, "bos": bool(bos), "heesters": bool(heesters), "maten": maten},
             voortgang=meld_voortgang_bomen, stop=moet_stoppen)
         return uitkomst["gelukt"]
     except Exception as fout:
@@ -1522,7 +1522,7 @@ def _importeer(aanvraag, deel="alles"):
     if deel == "groen":
         niveau = 0.0 if aanvraag.get("hoogtemodus") == "nul" else None            # bij vlak terrein staan ze op 0 m
         return importeer_groen_uit_venster((x_min, y_min, x_max, y_max), aanvraag.get("groenobject", ""),
-                                           aanvraag.get("groenbos", True), aanvraag.get("groenheesters", True), niveau)
+                                           aanvraag.get("groenbos", True), aanvraag.get("groenheesters", True), niveau, aanvraag.get("groenmaten"))
     if deel == "lichtmasten":
         niveau = 0.0 if aanvraag.get("hoogtemodus") == "nul" else None            # bij vlak terrein staan de lichtmasten op 0 m
         return importeer_lichtmasten_uit_venster((x_min, y_min, x_max, y_max), aanvraag.get("lichtobject", ""), niveau)
@@ -1733,6 +1733,7 @@ PAGINA = """<!DOCTYPE html>
  .groentabel{width:100%;font-size:12.5px;border-collapse:collapse;margin-top:4px}
  .groentabel th{color:#555;text-align:left;font-weight:600}
  .groentabel td,.groentabel th{padding:2px 4px 2px 0}
+ .groentabel input[type=text]{width:46px;padding:3px;text-align:right}
  details.uitleg summary,#geavanceerd3d summary{cursor:pointer;color:#163a69;font-size:12.5px;margin:4px 0}
 </style></head><body>
 <div id="paneel">
@@ -1806,10 +1807,13 @@ PAGINA = """<!DOCTYPE html>
     </div>
     <div id="groenstatus" class="klein" style="margin:2px 0 2px"></div>
     <table class="groentabel">
-     <tr><th></th><th>afstand</th><th>kroon</th><th>hoogte</th></tr>
-     <tr><td><label><input type="checkbox" id="drie_groen_bos" checked> Bos en bosplantsoen</label></td><td>5,5 m</td><td>6 m</td><td>10 m</td></tr>
-     <tr><td><label><input type="checkbox" id="drie_groen_heesters" checked> Heesters</label></td><td>2 m</td><td>2 m</td><td>1,5 m</td></tr>
+     <tr><th></th><th title="Minimale afstand tussen de objecten, in meter">afstand</th><th title="Doorsnede van de kroon, in meter">kroon</th><th title="Hoogte, in meter">hoogte</th></tr>
+     <tr><td><label><input type="checkbox" id="drie_groen_bos" checked> Bos en bosplantsoen</label></td>
+      <td><input type="text" id="groen_bos_afstand" value="5,5"></td><td><input type="text" id="groen_bos_kroon" value="6"></td><td><input type="text" id="groen_bos_hoogte" value="10"></td></tr>
+     <tr><td><label><input type="checkbox" id="drie_groen_heesters" checked> Heesters</label></td>
+      <td><input type="text" id="groen_heesters_afstand" value="2"></td><td><input type="text" id="groen_heesters_kroon" value="2"></td><td><input type="text" id="groen_heesters_hoogte" value="1,5"></td></tr>
     </table>
+    <div class="klein" style="margin:0">Maten in meter.</div>
    </div>
    <div id="sub_lichtmasten" style="display:none">
     <div class="klein" style="margin:4px 0 2px">Lichtmasten: lamp uit de bibliotheek</div>
@@ -1916,7 +1920,7 @@ const BESCHIKBAAR = __BESCHIKBAAR__;
 // Het zoekvak bij de bomen en de lichtmasten: zoekt in de geladen bibliotheken van Archicad terwijl je typt.
 function maakZoekvak(invoer, lijstEl, statusEl) {
   let volgnr = 0, timer = null;
-  async function zoek(vraag) {
+  async function zoek(vraag, stil) {                                // stil: alleen de status bijwerken, de lijst niet openen (bij het laden)
     const nr = ++volgnr;
     let d;
     try { d = await (await fetch('/bibliotheek?q=' + encodeURIComponent(vraag))).json(); }
@@ -1935,7 +1939,7 @@ function maakZoekvak(invoer, lijstEl, statusEl) {
                                statusEl.textContent = 'Gekozen: ' + naam; statusEl.style.color = '#2e7d32'; };
       lijstEl.appendChild(it);
     });
-    lijstEl.style.display = d.resultaten.length ? 'block' : 'none';
+    lijstEl.style.display = (!stil && d.resultaten.length) ? 'block' : 'none';
     const vraagLeeg = !String(vraag).trim();
     statusEl.textContent = d.exact ? 'Dit object staat in de bibliotheek.' : vraagLeeg ? d.aantal_totaal.toLocaleString('nl-NL') + ' objecten in de bibliotheek'
       : d.aantal ? d.aantal.toLocaleString('nl-NL') + ' gevonden (van ' + d.aantal_totaal.toLocaleString('nl-NL') + ' objecten); kies er een'
@@ -1950,13 +1954,13 @@ function maakZoekvak(invoer, lijstEl, statusEl) {
 }
 const boomInvoer = document.getElementById('drie_boomobject'), boomLijst = document.getElementById('boomlijst'), boomStatus = document.getElementById('boomstatus');
 const zoekBoom = maakZoekvak(boomInvoer, boomLijst, boomStatus);
-function boomZoek(vraag) { return zoekBoom(vraag); }
+function boomZoek(vraag) { return zoekBoom(vraag, true); }
 const lampInvoer = document.getElementById('drie_lichtobject'), lampLijst = document.getElementById('lamplijst'), lampStatus = document.getElementById('lampstatus');
 const zoekLamp = maakZoekvak(lampInvoer, lampLijst, lampStatus);
-function lampZoek(vraag) { return zoekLamp(vraag); }
+function lampZoek(vraag) { return zoekLamp(vraag, true); }
 const groenInvoer = document.getElementById('drie_groenobject'), groenLijst = document.getElementById('groenlijst'), groenStatus = document.getElementById('groenstatus');
 const zoekGroen = maakZoekvak(groenInvoer, groenLijst, groenStatus);
-function groenZoek(vraag) { return zoekGroen(vraag); }
+function groenZoek(vraag) { return zoekGroen(vraag, true); }
 boomZoek(boomInvoer.value);                                       // meteen controleren of de standaardnamen bestaan
 lampZoek(lampInvoer.value);
 groenZoek(groenInvoer.value);
@@ -2029,7 +2033,7 @@ if (!BESCHIKBAAR.gebouwen) nogNiet(['drie_gebouwen']);
 if (!BESCHIKBAAR.terrein) nogNiet(['drie_terrein', 'drie_skirt', 'drie_diepte', 'drie_naadmax', 'drie_controle', 'drie_wis', 'drie_kwaliteit', 'drie_scheidingen_meten', 'drie_soorten']);
 if (!BESCHIKBAAR.tekst) nogNiet(['planteksten']);
 if (!BESCHIKBAAR.lichtmasten) nogNiet(['drie_lichtmasten', 'drie_lichtobject']);
-if (!BESCHIKBAAR.groen) nogNiet(['drie_groen', 'drie_groenobject', 'drie_groen_bos', 'drie_groen_heesters']);
+if (!BESCHIKBAAR.groen) nogNiet(['drie_groen', 'drie_groenobject', 'drie_groen_bos', 'drie_groen_heesters', 'groen_bos_afstand', 'groen_bos_kroon', 'groen_bos_hoogte', 'groen_heesters_afstand', 'groen_heesters_kroon', 'groen_heesters_hoogte']);
 if (!BESCHIKBAAR.bouwdelen) nogNiet(['drie_bouwdelen']);
 // Subopties verschijnen pas als het vinkje erboven aan staat; de maatvoering van het plan kan pas als er een plan is gekozen.
 function werkSubopties() {
@@ -2286,6 +2290,8 @@ document.getElementById('importeer').onclick = async () => {
   const bouwdelen = document.getElementById('drie_bouwdelen').checked;
   const groen = document.getElementById('drie_groen').checked, groenobject = document.getElementById('drie_groenobject').value;
   const groenbos = document.getElementById('drie_groen_bos').checked, groenheesters = document.getElementById('drie_groen_heesters').checked;
+  const groenmaten = {};
+  ['bos', 'heesters'].forEach(s => { groenmaten[s] = {}; ['afstand', 'kroon', 'hoogte'].forEach(m => { groenmaten[s][m] = document.getElementById('groen_' + s + '_' + m).value; }); });
   const stijl2d = true, stijl3d = true;                // kleuren per soort: altijd aan
   const verfijnd2d = true;                                         // de 2D-vlakken staan altijd op lagen per soort
   const boomobject = document.getElementById('drie_boomobject').value;
@@ -2323,7 +2329,7 @@ document.getElementById('importeer').onclick = async () => {
     const r = await fetch('/import', {method: 'POST',
       body: JSON.stringify({...gebied, lagen, alleniveaus, pennen, plan, planteksten, perceelteksten,
                             gebouwen, gebouwenmateriaal, terrein, terreinnaad, terreinoverslaan, terreinskirt, terreindiepte, terreindekken, terreinnaadmax, hoogtemodus,
-                            bomen, boomobject, scheidingen, lichtmasten, lichtobject, bouwdelen, groen, groenobject, groenbos, groenheesters, stijl2d, stijl3d, verfijnd2d})});
+                            bomen, boomobject, scheidingen, lichtmasten, lichtobject, bouwdelen, groen, groenobject, groenbos, groenheesters, groenmaten, stijl2d, stijl3d, verfijnd2d})});
     const d = await r.json();
     if (d.fout) { status.textContent = 'Fout: ' + d.fout; return; }
     timerStart();

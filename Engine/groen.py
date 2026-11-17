@@ -36,6 +36,33 @@ RAND_FACTOR = 0.35                 # vrije strook langs de rand van een vlak, al
 WAARSCHUWING_AANTAL = 2000         # meer dan dit aantal objecten in een import: een melding (Archicad kan er traag van worden)
 
 
+GRENZEN = {"afstand": (0.5, 50.0), "kroon": (0.2, 30.0), "hoogte": (0.2, 60.0)}     # wat je in het palet kunt invullen (m)
+
+
+def soortinstellingen(maten=None):
+    """De instellingen per soort: de standaardwaarden, overschreven door wat in het palet is ingevuld.
+
+    maten: {soort: {'afstand': .., 'kroon': .., 'hoogte': ..}} in meter. Een waarde die ontbreekt, geen getal is of buiten GRENZEN valt,
+    blijft de standaardwaarde (en wordt gemeld). Geeft (instellingen, meldingen)."""
+    cfg = {s: dict(c) for s, c in SOORTEN.items()}
+    meldingen = []
+    for soort, w in (maten or {}).items():
+        if soort not in cfg or not isinstance(w, dict):
+            continue
+        for sl, (lo, hi) in GRENZEN.items():
+            if sl not in w or w[sl] in (None, ""):
+                continue
+            try:
+                x = float(str(w[sl]).replace(",", "."))
+            except ValueError:
+                x = None
+            if x is None or not (lo <= x <= hi):
+                meldingen.append(f"{cfg[soort]['naam']}: {sl} '{w[sl]}' is geen getal tussen {lo:g} en {hi:g} m; de standaardwaarde {cfg[soort][sl]:g} m wordt gebruikt")
+            else:
+                cfg[soort][sl] = x
+    return cfg, meldingen
+
+
 def standaard_opties(**kw):
     o = {"object": STANDAARD_OBJECT, "z": None, "bos": True, "heesters": True, "droog": False}
     o.update(kw)
@@ -201,8 +228,9 @@ def verdeel(vlak, cfg, gebied, blokkeren=()):
 def maak_items(vlakken, opties, gebied, blokkeren):
     """De objecten per soort: {soort: [item, ...]} voor CreateObjects (zonder laag), plus tellingen per soort."""
     items = {s: [] for s in SOORTEN}
+    instellingen = opties.get("cfg") or SOORTEN
     for vlak in vlakken:
-        cfg = SOORTEN[vlak["soort"]]
+        cfg = instellingen[vlak["soort"]]
         rng = random.Random(zlib.crc32(f"maat|{vlak['id']}".encode()))
         for n, (x, y, z) in enumerate(verdeel(vlak, cfg, gebied, blokkeren)):
             kroon = round(cfg["kroon"] * rng.uniform(0.9, 1.15), 2)
@@ -232,6 +260,10 @@ def plaats_groen(k, gebied, opties=None, voortgang=None, stop=None, uitsnede_geb
     Geeft een woordenboek met onder meer 'gelukt', 'mislukt' en 'overgeslagen'."""
     o = standaard_opties(**(opties or {}))
     uit = {"vlakken": 0, "gelukt": 0, "mislukt": 0, "overgeslagen": 0}
+    cfg, meldingen = soortinstellingen(o.get("maten"))
+    o["cfg"] = cfg
+    for m in meldingen:
+        print("LET OP: " + m)
     soorten = tuple(s for s in SOORTEN if o.get(s))
     if not soorten:
         print("Geen soort gekozen.")
@@ -253,7 +285,7 @@ def plaats_groen(k, gebied, opties=None, voortgang=None, stop=None, uitsnede_geb
         print(f"   (de BGT-vegetatiepunten konden niet worden opgehaald: {fout})")
     items = maak_items(vlakken, o, gebied, blokkeren)
     for s in soorten:
-        c = SOORTEN[s]
+        c = cfg[s]
         print(f"   {c['naam']}: {len(items[s])} objecten (afstand {c['afstand']:g} m, kroon {c['kroon']:g} m, hoogte {c['hoogte']:g} m) "
               f"op laag {c['laag']}")
     totaal = sum(len(v) for v in items.values())
@@ -272,7 +304,7 @@ def plaats_groen(k, gebied, opties=None, voortgang=None, stop=None, uitsnede_geb
     for s in soorten:
         if not items[s]:
             continue
-        c = SOORTEN[s]
+        c = cfg[s]
         laag = k.zorg_voor_laag(c["laag"])
         try:
             bestaand = B.bestaande_ids(k, laag)

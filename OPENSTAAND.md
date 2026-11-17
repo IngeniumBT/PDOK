@@ -1,6 +1,6 @@
 # Openstaande punten en bevindingen (PDOK Import)
 
-Dit bestand legt vast wat er nog open staat en wat we hebben gemeten, zodat het later opgepakt kan worden. Bijgewerkt bij versie 0.24.0.
+Dit bestand legt vast wat er nog open staat en wat we hebben gemeten, zodat het later opgepakt kan worden. Bijgewerkt bij versie 0.24.1.
 
 ## Wat af is
 Kaart en palet, 2D-lagen (BGT, kadaster, bestemmingsplan), teksten, bomen (met zoekvak), 3D-gebouwen (LoD 2.2, met terugvalstappen en zoeken naar de kleinste groep driehoeken),
@@ -20,7 +20,7 @@ Uit de verkenning van de BGT-collecties bij PDOK (puntobjecten, vegetatie en lab
 2. **Straatnamen als tekst.** Collectie `openbareruimtelabel`: labelpunten met de straatnaam en de hoek waaronder het label staat. Eventueel ook huisnummers (`pand_nummeraanduiding`).
 3. **Overige bouwwerken in 3D: een eerste versie is gebouwd in 0.22.0** (wacht op de test van de gebruiker). De hoogte is een aanname per soort in de stijltabel; de BGT heeft er geen en de 3D Basisvoorziening kent een overkapping alleen als terreinvlak. Mogelijke verbeteringen: bij een overkapping ook palen of wanden, een echte trap (helling) voor een toegangstrap, en een hoogte uit het AHN.
 4. **3D-hagen.** Collecties `vegetatieobject_lijn` en `vegetatieobject_vlak`, soort `haag`: als morph met een aangenomen hoogte.
-5a. **Bomen in groenvlakken: gebouwd in 0.24.0** (wacht op de test van de gebruiker). Maten en afstanden zijn aannames in `groen.py`; mogelijk later in de stijltabel, per soort een eigen object, en een hoogte uit het AHN.
+5a. **Bomen in groenvlakken: gebouwd in 0.24.0** (wacht op de test van de gebruiker). Maten en afstanden zijn aannames die je in het palet kunt aanpassen (standaardwaarden in `groen.py`); mogelijk later per soort een eigen object en een hoogte uit het AHN.
 5. **Boomhoogte uit het AHN.** In de BGT hangt aan bomen geen soort, hoogte of kroon; alleen het soort (`boom` of `haag`) en registratiegegevens. Een hoogte zou kunnen worden afgeleid uit het AHN (oppervlakmodel min maaiveld; PDOK biedt het als WCS). Niet uitgeprobeerd.
 6. **Technisch: de BGT-API-basis.** PDOK noemt `api.pdok.nl/kadaster/bgt/ogc/v1` nu de canonieke basis; wij gebruiken nog `api.pdok.nl/lv/bgt/ogc/v1`. Dat werkt nu nog; bij een volgende versie omzetten.
 7. *Optioneel:* *Soorten meten* uitbreiden met puntobjecten, zodat je per gebied ziet welke soorten palen, putten, borden en meubilair er staan (nu telt het alleen de vlaklagen en de bomen).
