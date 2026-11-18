@@ -1480,6 +1480,12 @@ def importeer(aanvraag):
             if gevonden is None:
                 raise RuntimeError(f"Het bibliotheekobject '{naam}' staat niet in de geladen bibliotheek. Zoek de lamp in het vak bij de lichtmasten en kies een naam uit de lijst.")
             aanvraag = dict(aanvraag, lichtobject=gevonden)
+    try:                                        # alleen om te loggen (diagnose van de positie); er wordt niets mee omgerekend
+        _r = _tapir_ruw("GetSurveyPointTransformation")
+        _l = pak(_r).get("projectToSurvey") if _r.get("succeeded") else None
+        print("Diagnose Survey Point (projectToSurvey): " + (", ".join(f"{float(w):.4f}" for w in _l) if _l else "niet te lezen"))
+    except Exception as _f:
+        print(f"Diagnose Survey Point niet te lezen: {_f}")
     laad_projectlocatie()                       # het Survey Point: bepaalt hoe RD naar het project wordt omgerekend (nu uit)
     if PROJECTLOCATIE_GEBRUIKEN:
         print(PROJECT["tekst"])

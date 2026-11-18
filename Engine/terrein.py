@@ -3202,6 +3202,18 @@ def _teken(meshes, opties):
             g_ = kaart.pak(kaart.tapir("Get3DGeometryOfElements", {"elements": [voorbeeld]}))
             zs_ = [v["z"] for geo in g_.get("geometries3D", []) for b_ in geo.get("bodies", [])
                    for v in b_.get("vertices", [])]
+            xs_ = [v["x"] for geo in g_.get("geometries3D", []) for b_ in geo.get("bodies", []) for v in b_.get("vertices", [])]
+            ys_ = [v["y"] for geo in g_.get("geometries3D", []) for b_ in geo.get("bodies", []) for v in b_.get("vertices", [])]
+            gevraagd = next((m_ for m_ in meshes if m_.get("id") == gemaakt[0][2]), None)
+            if xs_ and gevraagd and gevraagd.get("polygonCoordinates"):
+                gx = [c["x"] for c in gevraagd["polygonCoordinates"]]
+                gy = [c["y"] for c in gevraagd["polygonCoordinates"]]
+                dx_ = (min(xs_) + max(xs_)) / 2 - (min(gx) + max(gx)) / 2
+                dy_ = (min(ys_) + max(ys_)) / 2 - (min(gy) + max(gy)) / 2
+                print(f"Positie gecontroleerd bij een voorbeeldmesh: gevraagd x {min(gx):.2f} tot {max(gx):.2f}, y {min(gy):.2f} tot "
+                      f"{max(gy):.2f}; in Archicad x {min(xs_):.2f} tot {max(xs_):.2f}, y {min(ys_):.2f} tot {max(ys_):.2f}.")
+                if abs(dx_) > 0.05 or abs(dy_) > 0.05:
+                    print(f"   LET OP: de mesh staat {dx_:.2f} m in x en {dy_:.2f} m in y verschoven ten opzichte van wat de add-on vroeg.")
             if zs_:
                 laagste = min(zs_)
                 if abs(laagste - onderkant) < 0.05:
