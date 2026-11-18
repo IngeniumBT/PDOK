@@ -674,6 +674,114 @@ def ring_problemen(punten):
     return problemen
 
 
+HERSTEL_STAPPEN = (0.01, 0.02, 0.04)      # m: zoveel schuift een punt dat de omtrek laat raken naar binnen (eerst klein, dan groter)
+
+
+def _raakpunten(punten, tol=1e-3):
+    """De indexen van de hoekpunten die een andere, niet aansluitende rand van dezelfde omtrek raken (binnen tol)."""
+    n = len(punten)
+    pts = [(p["x"], p["y"]) for p in punten]
+
+    def afstand(p, a, b):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        l2 = dx * dx + dy * dy
+        if l2 < 1e-18:
+            return math.hypot(p[0] - a[0], p[1] - a[1])
+        t = max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2))
+        return math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy))
+
+    uit = []
+    for i in range(n):
+        a, b = pts[i], pts[(i + 1) % n]
+        for j in range(i + 2, n):
+            if i == 0 and j == n - 1:
+                continue
+            c, d = pts[j], pts[(j + 1) % n]
+            for idx, q in ((j, c), ((j + 1) % n, d)):
+                if idx not in (i, (i + 1) % n) and afstand(q, a, b) < tol:
+                    uit.append(idx)
+            for idx, q in ((i, a), ((i + 1) % n, b)):
+                if idx not in (j, (j + 1) % n) and afstand(q, c, d) < tol:
+                    uit.append(idx)
+    return sorted(set(uit))
+
+
+def herstel_ring(punten, oorspronkelijk=None):
+    """Probeert een omtrek die door het aan elkaar leggen van punten ongeldig is geworden (heel korte randen, een punt dat een andere
+    rand raakt) lokaal te herstellen: een heel korte rand verdwijnt (een van de twee punten blijft), een punt dat een andere rand
+    raakt gaat terug naar zijn oorspronkelijke plek (of verdwijnt als het een ingevoegd tussenpunt is; dat laat een naadje van
+    hoogstens de naadmarge), en wat dan nog raakt schuift 1 tot 4 cm naar binnen. `oorspronkelijk`: de omtrek van voor de
+    naadsluiting. Geeft de nieuwe lijst met punten (de oorspronkelijke lijst blijft ongewijzigd)."""
+    pts = [dict(p) for p in punten]
+    if len(pts) < 4:
+        return pts
+    verandering = True
+    while verandering and len(pts) > 3:                       # korte randen
+        verandering = False
+        for i in range(len(pts)):
+            j = (i + 1) % len(pts)
+            if math.hypot(pts[i]["x"] - pts[j]["x"], pts[i]["y"] - pts[j]["y"]) < MIN_RAND:
+                del pts[j]
+                verandering = True
+                break
+    for _ in range(6):                                          # raken: terug naar de plek van voor de naadsluiting
+        raak = _raakpunten(pts)
+        if not raak or not oorspronkelijk or len(pts) <= 3:
+            break
+        weg = []
+        for i in raak:
+            beste = min(oorspronkelijk, key=lambda q: (q["x"] - pts[i]["x"]) ** 2 + (q["y"] - pts[i]["y"]) ** 2)
+            d = math.hypot(beste["x"] - pts[i]["x"], beste["y"] - pts[i]["y"])
+            if d < 1e-6:
+                continue                                        # stond hier al (het raakte ook voor de naadsluiting)
+            if d <= 0.06:
+                pts[i]["x"], pts[i]["y"] = beste["x"], beste["y"]
+            else:
+                weg.append(i)                                   # een ingevoegd tussenpunt
+        for i in sorted(weg, reverse=True):
+            if len(pts) > 3:
+                del pts[i]
+    for stap in HERSTEL_STAPPEN:                               # raken
+        raak = _raakpunten(pts)
+        if not raak:
+            break
+        gebied = sum(pts[i]["x"] * pts[(i + 1) % len(pts)]["y"] - pts[(i + 1) % len(pts)]["x"] * pts[i]["y"] for i in range(len(pts)))
+        richting = 1.0 if gebied > 0 else -1.0                 # tegen de klok in: binnen ligt links van de looprichting
+        for i in raak:
+            vorige, huidig, volgende = pts[i - 1], pts[i], pts[(i + 1) % len(pts)]
+            nx = ny = 0.0
+            for a, b in ((vorige, huidig), (huidig, volgende)):
+                dx, dy = b["x"] - a["x"], b["y"] - a["y"]
+                l = math.hypot(dx, dy)
+                if l > 0:
+                    nx += -dy / l * richting
+                    ny += dx / l * richting
+            l = math.hypot(nx, ny)
+            if l > 1e-9:
+                huidig["x"] = round(huidig["x"] + nx / l * stap, AFRONDEN)
+                huidig["y"] = round(huidig["y"] + ny / l * stap, AFRONDEN)
+    return pts
+
+
+def herstel_mesh(m, toegestaan):
+    """Herstelt de omtrek en de gaten van een mesh lokaal (zie herstel_ring). Geeft True en past de mesh aan als daarna hoogstens
+    `toegestaan` problemen overblijven; anders blijft de mesh ongewijzigd en geeft het False."""
+    oud = m.get("_oorspronkelijk") or {}
+    buiten = herstel_ring(m["polygonCoordinates"], oud.get("polygonCoordinates"))
+    oude_gaten = oud.get("holes") or []
+    gaten = [{"polygonCoordinates": herstel_ring(h["polygonCoordinates"], sum((g["polygonCoordinates"] for g in oude_gaten), []) or None)}
+             for h in m.get("holes", [])]
+    probleem = ring_problemen(buiten)
+    for h in gaten:
+        probleem += ring_problemen(h["polygonCoordinates"])
+    if len(probleem) > toegestaan or any(len(h["polygonCoordinates"]) < 3 for h in gaten) or len(buiten) < 3:
+        return False
+    m["polygonCoordinates"] = buiten
+    if gaten:
+        m["holes"] = gaten
+    return True
+
+
 def mesh_problemen(m):
     uit = ring_problemen(m["polygonCoordinates"])
     for h in m.get("holes", []):
@@ -809,6 +917,7 @@ def naadsluiting(meshes, beleid="gemiddelde", marge=NAAD_MARGE_STANDAARD, max_ve
             continue
         nieuw = []
         n = len(r)
+        eigen = {(round(q["x"], 4), round(q["y"], 4)) for q in r}     # een punt dat al in deze ring zit niet nog eens invoegen
         for k in range(n):
             a, b = r[k], r[(k + 1) % n]
             nieuw.append(a)
@@ -823,7 +932,7 @@ def naadsluiting(meshes, beleid="gemiddelde", marge=NAAD_MARGE_STANDAARD, max_ve
                 for cy in range(int(math.floor((min(a["y"], b["y"]) - marge) / NAAD_CEL)),
                                 int(math.floor((max(a["y"], b["y"]) + marge) / NAAD_CEL)) + 1):
                     for rn2, p in index.get((cx, cy), ()):
-                        if rn2 == rn:
+                        if rn2 == rn or (round(p["x"], 4), round(p["y"], 4)) in eigen:
                             continue
                         t_ = ((p["x"] - a["x"]) * dx + (p["y"] - a["y"]) * dy) / lengte2
                         if t_ * lengte <= marge or (1 - t_) * lengte <= marge:
@@ -885,7 +994,7 @@ def naadsluiting(meshes, beleid="gemiddelde", marge=NAAD_MARGE_STANDAARD, max_ve
     stat = {"ringpunten": sum(len(r) for _, _, r in ringen), "ingevoegd": aantal_ingevoegd,
             "naadpunten": 0, "voor": [], "echt": 0, "interpolatie": 0, "samengevoegd": samengevoegd,
             "nabij_pp": nabij_pp, "nabij_pr": nabij_pr, "nabij_voorbeelden": nabij_voorbeelden,
-            "teruggezet": [], "groot": 0, "ankers": len(ankers), "op_anker_rand": op_anker_rand,
+            "teruggezet": [], "hersteld": 0, "groot": 0, "ankers": len(ankers), "op_anker_rand": op_anker_rand,
             "anker_plaatsen": 0, "anker_verschil": 0}
     for (x, y), lid in groepen.items():
         if len({mi for _, _, mi in lid}) < 2:
@@ -941,6 +1050,9 @@ def naadsluiting(meshes, beleid="gemiddelde", marge=NAAD_MARGE_STANDAARD, max_ve
         oud_p = ring_problemen(oud["polygonCoordinates"])
         for h in oud["holes"]:
             oud_p += ring_problemen(h["polygonCoordinates"])
+        if len(nieuw_p) > len(oud_p) and herstel_mesh(m, len(oud_p)):
+            stat["hersteld"] += 1
+            continue
         if len(nieuw_p) > len(oud_p):
             m["polygonCoordinates"] = copy.deepcopy(oud["polygonCoordinates"])
             if oud["holes"]:
@@ -1112,6 +1224,9 @@ def toon_naadstatistiek(stat, beleid):
           f"{stat['nabij_pr']} punt-rand; deze blijven als naadje bestaan tenzij je --naadmarge verhoogt")
     for d, x, y, soort in stat["nabij_voorbeelden"][:5]:
         print(f"      {d * 1000:5.1f} mm {soort} bij ({x:.2f}, {y:.2f})")
+    if stat.get("hersteld"):
+        print(f"   {stat['hersteld']} meshes hadden door de naadsluiting een ongeldige omtrek en zijn lokaal hersteld "
+              f"(de naadsluiting is behouden).")
     if stat["teruggezet"]:
         print(f"   {len(stat['teruggezet'])} meshes zijn teruggezet naar hun oorspronkelijke omtrek, omdat de "
               f"naadsluiting ze ongeldig zou maken:")
