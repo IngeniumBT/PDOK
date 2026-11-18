@@ -13,6 +13,8 @@ Wat nog openstaat en wat we hebben gemeten staat in **OPENSTAAND.md**.
 - **0.3 (groep 1):** de eerste **opdrachten van de add-on zelf**: lagen (lezen, aanmaken in een map), het actieve venster
   (lezen, wisselen), elementen (per type lezen, details lezen, laag en ID zetten, verwijderen) en de selectie. De motor
   roept ze aan via Archicads JSON-interface (namespace `PDOKImport`). Een testpaneel in het palet laat elke opdracht proberen.
+- **0.27.5: virtueel nulpunt lezen.** Nieuwe C++-opdracht `GetProjectOffset` (`ACAPI_ProjectSetting_GetOffset`, alleen lezen, alleen in een 2D-venster) en een logregel `Diagnose virtueel nulpunt: verschuiving x .., y ..`. Archicad meet alle API-coordinaten vanaf een virtueel nulpunt dat bij het openen van het bestand wordt gezet als het model ver van het wereldnulpunt ligt. Er wordt nog niets mee omgerekend. Vereist een nieuwe build (.apx).
+- **0.27.4:** het log toont voor het aanmaken waar de bestaande meshes op de terreinlagen staan (x/y-bereik in projectcoordinaten).
 - **0.27.3:** de positiecontrole leest de omtrek uit GetDetailsOfElements (de 3D-geometrie kwam leeg terug in de plattegrond) en meldt het verschil per voorbeeldmesh.
 - **0.27.2:** positiecontrole gerepareerd (meshes zijn paren); de onderkantcontrole werkt weer.
 - **0.27.1: diagnose van de positie.** Het log toont bij elke import `Diagnose Survey Point (projectToSurvey)` (de 12 getallen van Archicad, er wordt niets mee omgerekend) en na het terrein `Positie gecontroleerd bij een voorbeeldmesh`: gevraagde en werkelijke x/y in Archicad, met LET OP bij een verschuiving. Bedoeld om de verschoven tweede import na een herstart te verklaren. Geen C++-wijziging.

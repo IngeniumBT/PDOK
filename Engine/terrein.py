@@ -1587,6 +1587,33 @@ def terreinmeshes_per_type(k):
     return uit
 
 
+def meld_bestaande_posities(k, lagen, maximum=300):
+    """Diagnose: waar staan de meshes die al op de terreinlagen staan (x/y-bereik in projectcoordinaten)?"""
+    try:
+        r = k.tapir("GetElementsByType", {"elementType": "Mesh"})
+        elementen = k.pak(r).get("elements", [])
+        xs, ys, n, totaal = [], [], 0, 0
+        for i in range(0, len(elementen), 100):
+            blok = elementen[i:i + 100]
+            d = k.tapir("GetDetailsOfElements", {"elements": blok})
+            for it in k.pak(d).get("detailsOfElements", []):
+                if not isinstance(it, dict) or it.get("layerIndex") not in lagen:
+                    continue
+                totaal += 1
+                if n >= maximum:
+                    continue
+                pc = (it.get("details") or {}).get("polygonCoordinates") or []
+                if pc:
+                    xs += [c["x"] for c in pc]; ys += [c["y"] for c in pc]; n += 1
+        if totaal:
+            print(f"Bestaande meshes op de terreinlagen: {totaal}; positie van {n} daarvan: x {min(xs):.2f} tot {max(xs):.2f}, "
+                  f"y {min(ys):.2f} tot {max(ys):.2f} (projectcoordinaten).")
+        else:
+            print("Bestaande meshes op de terreinlagen: geen.")
+    except Exception as fout:
+        print("Positie van bestaande meshes lezen mislukt:", fout)
+
+
 def oppervlakken_van_mesh(k, element):
     """Telling {guid: aantal vlakken} van de oppervlakken van een mesh, zoals Archicad ze nu heeft."""
     g = k.pak(k.tapir("Get3DGeometryOfElements", {"elements": [element]}))
@@ -2916,6 +2943,7 @@ def _teken(meshes, opties):
         elif naam in bestaande_lagen:
             controle_lagen.add(bestaande_lagen[naam]["index"])
     print("\nLagen: " + ", ".join(f"{ALLE_LAGEN[t]} ({laag_van[t]})" for t in laag_van))
+    meld_bestaande_posities(kaart, controle_lagen)
     run = opties.get("_run")
     if not opties["forceer"]:
         try:

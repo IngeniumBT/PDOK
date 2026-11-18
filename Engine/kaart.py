@@ -1480,6 +1480,16 @@ def importeer(aanvraag):
             if gevonden is None:
                 raise RuntimeError(f"Het bibliotheekobject '{naam}' staat niet in de geladen bibliotheek. Zoek de lamp in het vak bij de lichtmasten en kies een naam uit de lijst.")
             aanvraag = dict(aanvraag, lichtobject=gevonden)
+    try:                                        # diagnose: het virtuele nulpunt van Archicad (alleen lezen, in een 2D-venster)
+        _o = _tapir_ruw("GetProjectOffset")
+        if _o.get("succeeded", True) and "offsetX" in pak(_o):
+            print(f"Diagnose virtueel nulpunt: verschuiving x {pak(_o)['offsetX']:.4f}, y {pak(_o)['offsetY']:.4f} m "
+                  f"(alle API-coordinaten worden vanaf dit punt gemeten)")
+        else:
+            print("Diagnose virtueel nulpunt niet te lezen: " + str((_o.get("error") or {}).get("message", _o)) +
+                  " (zet de plattegrond actief en probeer opnieuw)")
+    except Exception as _f:
+        print(f"Diagnose virtueel nulpunt niet te lezen: {_f}")
     try:                                        # alleen om te loggen (diagnose van de positie); er wordt niets mee omgerekend
         _r = _tapir_ruw("GetSurveyPointTransformation")
         _l = pak(_r).get("projectToSurvey") if _r.get("succeeded") else None

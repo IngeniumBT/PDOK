@@ -1950,6 +1950,29 @@ public:
     }
 };
 
+// ---- GetProjectOffset -> {offsetX, offsetY}
+//      Archicad werkt met een virtueel nulpunt: als het zwaartepunt van het model ver van het echte (wereld)nulpunt ligt, zet Archicad
+//      bij het openen van het bestand een verschuiving, en alle coordinaten die via de API gaan worden vanaf dat virtuele nulpunt
+//      gemeten. Deze opdracht leest die verschuiving (alleen lezen; werkt alleen in een 2D-venster, zoals de plattegrond).
+class GetProjectOffsetCommand final : public CommandBase
+{
+public:
+    virtual GS::String GetName () const override { return "GetProjectOffset"; }
+
+    virtual GS::ObjectState Execute (const GS::ObjectState&, GS::ProcessControl&) const override
+    {
+        API_Coord offset = {};
+        const GSErrCode err = ACAPI_ProjectSetting_GetOffset (&offset);
+        if (err != NoError) {
+            return ErrorResponse (err, "De verschuiving van het virtuele nulpunt kon niet worden gelezen (werkt alleen in een 2D-venster).");
+        }
+        GS::ObjectState response;
+        response.Add ("offsetX", offset.x);
+        response.Add ("offsetY", offset.y);
+        return response;
+    }
+};
+
 // ---- GetLibraryObjectNames -> {names: [..], count}
 //      De namen van alle plaatsbare bibliotheekobjecten in de geladen bibliotheken (de namen die CreateObjects als libraryPartName
 //      accepteert). De motor bewaart de lijst en gebruikt hem voor het zoekvak bij de bomen. Naar Tapirs GetAvailableLibraryParts.
@@ -2224,6 +2247,7 @@ GSErrCode RegisterAll ()
     err |= Register<CreateMeshesCommand> ();
     err |= Register<GetGeoLocationCommand> ();
     err |= Register<GetSurveyPointTransformationCommand> ();
+    err |= Register<GetProjectOffsetCommand> ();
     err |= Register<GetLibraryObjectNamesCommand> ();
     err |= Register<GetMeshSurfacesCommand> ();
     err |= Register<CreateLampsCommand> ();
