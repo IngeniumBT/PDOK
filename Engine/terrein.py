@@ -3204,7 +3204,7 @@ def _teken(meshes, opties):
                    for v in b_.get("vertices", [])]
             xs_ = [v["x"] for geo in g_.get("geometries3D", []) for b_ in geo.get("bodies", []) for v in b_.get("vertices", [])]
             ys_ = [v["y"] for geo in g_.get("geometries3D", []) for b_ in geo.get("bodies", []) for v in b_.get("vertices", [])]
-            gevraagd = next((m_ for m_ in meshes if m_.get("id") == gemaakt[0][2]), None)
+            gevraagd = next((m_[1] for m_ in meshes if m_[1].get("id") == gemaakt[0][2]), None)
             if xs_ and gevraagd and gevraagd.get("polygonCoordinates"):
                 gx = [c["x"] for c in gevraagd["polygonCoordinates"]]
                 gy = [c["y"] for c in gevraagd["polygonCoordinates"]]
