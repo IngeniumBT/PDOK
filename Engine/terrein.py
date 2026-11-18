@@ -3230,6 +3230,28 @@ def _teken(meshes, opties):
         details = kaart.pak(d).get("detailsOfElements", [])
         goed = sum(1 for (_, _, mid), it in zip(proef, details) if isinstance(it, dict) and it.get("id") == mid)
         print(f"Controle: bij {goed} van de {len(proef)} gecontroleerde meshes staat het verwachte Element-ID.")
+        try:                                    # positie: staat de omtrek in Archicad op de plek die de add-on vroeg?
+            op_naam = {m_[1].get("id"): m_[1] for m_ in meshes}
+            afwijkingen = []
+            for (_, _, mid), it in zip(proef, details):
+                dd = (it.get("details") or {}) if isinstance(it, dict) else {}
+                pc = dd.get("polygonCoordinates") or []
+                vraag = op_naam.get(mid)
+                if not pc or not vraag or not vraag.get("polygonCoordinates"):
+                    continue
+                gx = [c["x"] for c in vraag["polygonCoordinates"]]; gy = [c["y"] for c in vraag["polygonCoordinates"]]
+                ax = [c["x"] for c in pc]; ay = [c["y"] for c in pc]
+                afwijkingen.append(((min(ax) + max(ax)) / 2 - (min(gx) + max(gx)) / 2, (min(ay) + max(ay)) / 2 - (min(gy) + max(gy)) / 2,
+                                    min(gx), min(gy), min(ax), min(ay)))
+            if not afwijkingen:
+                print("Positie niet te controleren: Archicad gaf geen omtrek terug.")
+            for dx_, dy_, gx0, gy0, ax0, ay0 in afwijkingen[:3]:
+                print(f"Positie gecontroleerd: gevraagd (x {gx0:.2f}, y {gy0:.2f}), in Archicad (x {ax0:.2f}, y {ay0:.2f}); "
+                      f"verschil {dx_:.2f} m in x, {dy_:.2f} m in y.")
+            if any(abs(a_[0]) > 0.05 or abs(a_[1]) > 0.05 for a_ in afwijkingen):
+                print("   LET OP: de meshes staan niet op de plek die de add-on vroeg.")
+        except Exception as fout:
+            print("Positie controleren mislukt:", fout)
     print(f"\n{gelukt} meshes aangemaakt, {mislukt} mislukt; {ingesteld} op hun laag gezet.")
     if zonder_naad_n:
         print(f"   {zonder_naad_n} meshes met hun oorspronkelijke omtrek, zonder naadsluiting "
