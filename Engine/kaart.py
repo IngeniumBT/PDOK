@@ -183,6 +183,36 @@ def _inverteer(m):
             r[6], r[7], r[8], -(r[6] * tx + r[7] * ty + r[8] * tz)]
 
 
+VIRTUEEL = None     # (x, y): de verschuiving van het virtuele nulpunt van Archicad (None: niet gelezen)
+
+
+def verschuiving_matrices(ox, oy):
+    """API-coordinaten = wereldcoordinaten min de verschuiving (de API meet vanaf het virtuele nulpunt, dat op (ox, oy) ligt)."""
+    m = [1.0, 0.0, 0.0, ox, 0.0, 1.0, 0.0, oy, 0.0, 0.0, 1.0, 0.0]          # API -> wereld
+    i = [1.0, 0.0, 0.0, -ox, 0.0, 1.0, 0.0, -oy, 0.0, 0.0, 1.0, 0.0]        # wereld -> API
+    return m, i
+
+
+def lees_virtueel_nulpunt():
+    """Leest de verschuiving van het virtuele nulpunt (alleen in een 2D-venster; we wisselen zo nodig tijdelijk naar de plattegrond)."""
+    global VIRTUEEL
+    VIRTUEEL = None
+    try:
+        with PlattegrondActief():
+            o = _tapir_ruw("GetProjectOffset")
+        d = pak(o) if o.get("succeeded", True) else {}
+        if "offsetX" in d and "offsetY" in d:
+            VIRTUEEL = (float(d["offsetX"]), float(d["offsetY"]))
+            print(f"Virtueel nulpunt van Archicad: verschuiving x {VIRTUEEL[0]:.4f}, y {VIRTUEEL[1]:.4f} m "
+                  f"(alle API-coordinaten worden vanaf dit punt gemeten)")
+        else:
+            print("LET OP: het virtuele nulpunt van Archicad kon niet worden gelezen: "
+                  + str((o.get("error") or {}).get("message", o)) + ". Zet de plattegrond actief; zonder dit kunnen objecten verschoven komen.")
+    except Exception as fout:
+        print(f"LET OP: het virtuele nulpunt van Archicad kon niet worden gelezen ({fout}).")
+    return VIRTUEEL
+
+
 PROJECTLOCATIE_GEBRUIKEN = False    # in deze versie uit: het projectnulpunt wordt als RD (0, 0) gezien. De omrekening hieronder is klaar voor later.
 
 
@@ -193,6 +223,11 @@ def laad_projectlocatie():
     PROJECT.update(actief=False, waarschuwing="")
     if not PROJECTLOCATIE_GEBRUIKEN:
         PROJECT["tekst"] = "De projectlocatie (Survey Point) wordt in deze versie niet gebruikt: het projectnulpunt wordt als RD (0, 0) gezien."
+        if VIRTUEEL and (abs(VIRTUEEL[0]) > 1e-6 or abs(VIRTUEEL[1]) > 1e-6):
+            m, i = verschuiving_matrices(*VIRTUEEL)
+            _T = {"m": m, "i": i}
+            PROJECT["tekst"] += (f" Het virtuele nulpunt van Archicad ligt op ({VIRTUEEL[0]:.2f}, {VIRTUEEL[1]:.2f}); "
+                                 f"alle coordinaten worden daarvoor gecorrigeerd.")
         return PROJECT
     m = None
     try:
@@ -321,7 +356,15 @@ def _p_objecten(par):
             it["angle"] = _hoek_naar_project(it["angle"])
 
 
-_NAAR_PROJECT = {"CreatePolylines": _p_polylijnen, "CreateHatches": _p_vlakken, "CreateTexts": _p_teksten,
+def _p_lampen(par):
+    for it in par.get("lampsData", []):
+        if "coordinates" in it:
+            _punt_p(it["coordinates"], True)
+        if "angle" in it:
+            it["angle"] = _hoek_naar_project(it["angle"])
+
+
+_NAAR_PROJECT = {"CreateLamps": _p_lampen, "CreatePolylines": _p_polylijnen, "CreateHatches": _p_vlakken, "CreateTexts": _p_teksten,
                  "CreateMeshes": _p_meshes, "CreateMorphs": _p_morphs, "CreateObjects": _p_objecten}
 
 
@@ -1480,16 +1523,7 @@ def importeer(aanvraag):
             if gevonden is None:
                 raise RuntimeError(f"Het bibliotheekobject '{naam}' staat niet in de geladen bibliotheek. Zoek de lamp in het vak bij de lichtmasten en kies een naam uit de lijst.")
             aanvraag = dict(aanvraag, lichtobject=gevonden)
-    try:                                        # diagnose: het virtuele nulpunt van Archicad (alleen lezen, in een 2D-venster)
-        _o = _tapir_ruw("GetProjectOffset")
-        if _o.get("succeeded", True) and "offsetX" in pak(_o):
-            print(f"Diagnose virtueel nulpunt: verschuiving x {pak(_o)['offsetX']:.4f}, y {pak(_o)['offsetY']:.4f} m "
-                  f"(alle API-coordinaten worden vanaf dit punt gemeten)")
-        else:
-            print("Diagnose virtueel nulpunt niet te lezen: " + str((_o.get("error") or {}).get("message", _o)) +
-                  " (zet de plattegrond actief en probeer opnieuw)")
-    except Exception as _f:
-        print(f"Diagnose virtueel nulpunt niet te lezen: {_f}")
+    lees_virtueel_nulpunt()                     # de verschuiving van het virtuele nulpunt (wordt in laad_projectlocatie meegenomen)
     try:                                        # alleen om te loggen (diagnose van de positie); er wordt niets mee omgerekend
         _r = _tapir_ruw("GetSurveyPointTransformation")
         _l = pak(_r).get("projectToSurvey") if _r.get("succeeded") else None
@@ -1497,6 +1531,8 @@ def importeer(aanvraag):
     except Exception as _f:
         print(f"Diagnose Survey Point niet te lezen: {_f}")
     laad_projectlocatie()                       # het Survey Point: bepaalt hoe RD naar het project wordt omgerekend (nu uit)
+    if _T is not None and not PROJECTLOCATIE_GEBRUIKEN:
+        print(PROJECT["tekst"])
     if PROJECTLOCATIE_GEBRUIKEN:
         print(PROJECT["tekst"])
         if PROJECT["waarschuwing"]:
