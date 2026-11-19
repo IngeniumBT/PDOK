@@ -1,6 +1,6 @@
 # PDOK Import voor Archicad - handleiding voor proefgebruikers
 
-Versie 0.28.0 (proefversie). Deze add-on haalt gegevens van PDOK (de BGT, het kadaster, bestemmingsplannen en de 3D Basisvoorziening) op
+Versie 0.29.0 (proefversie). Deze add-on haalt gegevens van PDOK (de BGT, het kadaster, bestemmingsplannen en de 3D Basisvoorziening) op
 en zet ze in je Archicad-project: als lijnen en vlakken, als 3D-gebouwen, als terrein en als bomen.
 
 ## Wat heb je nodig
@@ -89,8 +89,7 @@ de cache en gaat het sneller.
 - **Archicad lijkt tijdens een import soms vast te lopen.** De add-on werkt via Archicad zelf, en Archicad is dan even bezet. Wacht tot de voortgangsbalk klaar is.
 - **Het venster wisselt tijdelijk naar de plattegrond** voor lijnen en vlakken, en springt daarna terug naar waar je was.
 - **Ongedaan maken** werkt: elke stap in Archicad is een eigen, ongedaan te maken opdracht.
-- **Nogmaals importeren** slaat gebouwen, terrein en bomen over die er al staan (ze herkennen elkaar aan het ID). Lijnen en vlakken worden opnieuw getekend: wis
-  ze eerst als je ze vervangt.
+- **Nogmaals importeren** slaat over wat er al staat. Gebouwen, terrein, bomen, groen en lichtmasten herkennen elkaar aan het ID. Bij de 2D-import krijgt elk **BGT-vlak** (vulling) een ID (`bgt-<laag>-<id van het object>`); een vlak met een ID dat al in het project staat, wordt overgeslagen. **Lijnen** (polylijnen, ook de kadastrale lijnen en de puntsymbolen) hebben in Archicad geen ID en worden herkend aan hun vorm: dezelfde coördinaten (op 1 cm), in welke richting of vanaf welk punt ook, op dezelfde laag. **Teksten** (perceelnummers, straatnamen) worden herkend aan hun plek op de laag. Een object dat op de grens tussen twee blokken ligt, komt dus ook niet dubbel. Het log meldt hoeveel er is overgeslagen. Vlakken die met een eerdere versie zijn gemaakt hebben nog geen ID en worden bij de eerste nieuwe import nog één keer opnieuw getekend: wis de laag als je ze wilt vervangen. Een object dat bij PDOK is aangepast, wordt niet bijgewerkt; wis het eerst als je de nieuwe vorm wilt.
 - **De eerste import van een gebied is het langzaamst.** De 3D-gegevens komen in grote bestanden (tot ongeveer 100 MB). De import leest zo'n bestand één keer en bewaart alleen het stuk rond je gebied (met een rand van 30 m); terrein, scheidingen, bomen, lichtmasten en bouwdelen gebruiken dat samen. Dat stuk blijft ook op schijf bewaard (map `3d_cache\uitsneden` in `%LOCALAPPDATA%\PDOKImport`, hoogstens 40 stuks), dus een volgende import van hetzelfde gebied (of een iets kleiner gebied) hoeft het grote bestand niet meer te lezen. Het log meldt dit (*uitsnede uit de cache*).
 - **Alles komt in de map PDOK Import** (lagen), zodat je het makkelijk kunt tonen, verbergen of verwijderen.
 

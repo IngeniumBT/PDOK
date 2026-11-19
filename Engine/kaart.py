@@ -12,6 +12,7 @@ import uuid
 import copy
 from collections import Counter, defaultdict
 import webbrowser
+import zlib
 import zipfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -761,10 +762,12 @@ def punt_symbool(coord, midden_x, midden_y):
     return punten
 
 
-def maak_elementen(features, midden_x, midden_y, alle_niveaus):
-    """Geeft (vlakken, lijnen): vlakken worden vullingen, de rest polylijnen."""
+def maak_elementen(features, midden_x, midden_y, alle_niveaus, id_voorvoegsel=None):
+    """Geeft (vlakken, lijnen): vlakken worden vullingen, de rest polylijnen. Met id_voorvoegsel krijgt elk vlak een Element-ID
+    (voorvoegsel + id van het object, bij meer delen met -2, -3, ...)."""
     vlakken = []
     lijnen = []
+    huidig = {"id": None, "n": 0}
 
     def voeg_vlak_toe(polygoon, stijl_eig=None):
         buiten = schoon_vlak(polygoon[0], midden_x, midden_y)
@@ -776,6 +779,9 @@ def maak_elementen(features, midden_x, midden_y, alle_niveaus):
             if len(gat) >= 3 and oppervlak(gat) >= 0.0001:
                 gaten.append({"polygonOutline": gat})
         element = {"floorInd": 0, "coordinates": buiten, "arcs": []}
+        if huidig["id"]:
+            huidig["n"] += 1
+            element["id"] = huidig["id"] if huidig["n"] == 1 else f"{huidig['id']}-{huidig['n']}"
         if stijl_eig is not None:
             element["_eig"] = stijl_eig                  # alleen voor de kleur; wordt verwijderd voordat het naar Archicad gaat
         if gaten:
@@ -796,6 +802,8 @@ def maak_elementen(features, midden_x, midden_y, alle_niveaus):
         if not geo:
             continue
         soort, c = geo["type"], geo["coordinates"]
+        huidig["id"] = (id_voorvoegsel + feature_id(feature)) if id_voorvoegsel else None
+        huidig["n"] = 0
         st_eig = stijl.eig_uit_2d(eig) if stijl is not None else None
 
         if soort == "Polygon":
@@ -1065,10 +1073,90 @@ def importeer_straatnamen_uit_venster(gebied):
     return ok
 
 
+# ------------------------------------------------------- Geen dubbele 2D-elementen
+#
+# Vullingen krijgen een Element-ID (bron-laag-BGT-id) en worden overgeslagen als dat ID al in het project staat.
+# Polylijnen hebben in Archicad geen ID: die worden herkend aan hun geometrie (coordinaten op 1 cm afgerond, beginpunt en richting
+# genormaliseerd). Teksten worden herkend aan hun plek (op 1 cm afgerond) op dezelfde laag.
+
+def feature_id(feature):
+    """Een vaste naam voor een BGT- of kadaster-object: het id uit de bron, anders een controlegetal van de geometrie."""
+    eig = feature.get("properties") or {}
+    fid = feature.get("id") or eig.get("lokaal_id") or eig.get("identificatie_lokaal_id") or eig.get("identificatie")
+    if fid:
+        return re.sub(r"[^0-9A-Za-z._-]+", "_", str(fid))
+    return "g" + format(zlib.crc32(json.dumps(feature.get("geometry"), sort_keys=True).encode()) & 0xFFFFFFFF, "08x")
+
+
+def _punten_sleutel(punten):
+    """Sleutel van een rij punten [(x, y)]: op 1 cm afgerond; gesloten ringen met het kleinste punt als begin; richting vrij."""
+    r = [(round(x * 100), round(y * 100)) for x, y in punten]
+    if len(r) > 1 and r[0] == r[-1]:
+        r.pop()
+        k = r.index(min(r))
+        a = r[k:] + r[:k]
+        b = [a[0]] + a[:0:-1]
+        return ("g", tuple(min(a, b)))
+    return ("o", tuple(min(r, r[::-1])))
+
+
+def lijn_sleutel(lijn):
+    return _punten_sleutel([(p["x"], p["y"]) for p in lijn["coordinates"]])
+
+
+def _naar_rd_xy(x, y):
+    return naar_rd(x, y)[:2]
+
+
+def bestaande_vlak_ids():
+    """De Element-ID's van alle vullingen die al in het project staan."""
+    r = tapir("GetDetailsOfElements", {"types": ["Hatch"], "withDetails": False})
+    d = pak(r).get("detailsOfElements", []) if r.get("succeeded") else []
+    return {x["id"] for x in d if isinstance(x, dict) and x.get("id")}
+
+
+def bestaande_lijnsleutels(laag_index):
+    """De sleutels van de polylijnen die al op deze laag staan."""
+    r = tapir("GetDetailsOfElements", {"types": ["Polyline"], "layerIndices": [laag_index]})
+    d = pak(r).get("detailsOfElements", []) if r.get("succeeded") else []
+    uit = set()
+    for x in d:
+        if not isinstance(x, dict) or x.get("layerIndex") != laag_index:
+            continue
+        for c in (x.get("details") or {}).get("contours", [])[:1]:
+            pts = [_naar_rd_xy(p["x"], p["y"]) for p in c.get("points", [])]
+            if len(pts) >= 2:
+                uit.add(_punten_sleutel(pts))
+    return uit
+
+
+def bestaande_tekstplekken(laag_index):
+    """De plekken (op 1 cm afgerond, in RD) van de teksten die al op deze laag staan."""
+    r = tapir("GetDetailsOfElements", {"types": ["Text"], "layerIndices": [laag_index]})
+    d = pak(r).get("detailsOfElements", []) if r.get("succeeded") else []
+    uit = set()
+    for x in d:
+        loc = (x.get("details") or {}).get("location") if isinstance(x, dict) and x.get("layerIndex") == laag_index else None
+        if loc:
+            rx, ry = _naar_rd_xy(loc["x"], loc["y"])
+            uit.add((round(rx * 100), round(ry * 100)))
+    return uit
+
+
 def teken_teksten(laagnaam, teksten, hoogte, pen):
     if not BESCHIKBAAR["tekst"]:
         return 0, 0
     laag_index = zorg_voor_laag(laagnaam)
+    try:
+        aanwezig = bestaande_tekstplekken(laag_index)
+    except Exception as fout:
+        aanwezig = set()
+        print(f"{laagnaam}: de bestaande teksten lezen mislukt ({fout}); dubbelen worden niet herkend.")
+    if aanwezig:
+        nieuw = [t for t in teksten if (round(t["x"] * 100), round(t["y"] * 100)) not in aanwezig]
+        if len(nieuw) < len(teksten):
+            print(f"{laagnaam}: {len(teksten) - len(nieuw)} teksten staan al op die plek en worden overgeslagen.")
+        teksten = nieuw
     gelukt = mislukt = 0
     for i in range(0, len(teksten), 100):
         batch = [dict({"floorIndex": 0, "coordinate": {"x": t["x"], "y": t["y"]},
@@ -1114,13 +1202,15 @@ def herstel_vlak(laag, vlak):
 
     basis = {k: v for k, v in vlak.items() if k not in ("coordinates", "arcs", "holes")}
     gelukt = 0
-    for pg in polygonen:
+    for deel_nr, pg in enumerate(polygonen):
         if pg.get("polygonArcs"):
             return False  # bogen kunnen we hier niet doorgeven
         buiten = pg.get("polygonCoordinates") or []
         if len(buiten) < 3:
             continue
         element = dict(basis)
+        if basis.get("id") and deel_nr > 0:
+            element["id"] = f"{basis['id']}-r{deel_nr}"       # elk deel een eigen ID
         element["coordinates"] = buiten
         element["arcs"] = []
         gaten = []
@@ -1738,7 +1828,8 @@ def _importeer(aanvraag, deel="alles"):
             features = nieuwe
 
         alle_niveaus = alle_niveaus_gekozen or (bron == "bgt" and laag in ALTIJD_ALLE_NIVEAUS)
-        vlakken, lijnen = maak_elementen(features, midden_x, midden_y, alle_niveaus)
+        vlakken, lijnen = maak_elementen(features, midden_x, midden_y, alle_niveaus,
+                                         id_voorvoegsel=(f"{bron}-{laag}-" if bron == "bgt" else None))
 
         perceel_labels = []
         if bron == "kad" and laag == "perceel" and aanvraag.get("perceelteksten", True) and BESCHIKBAAR["tekst"]:
@@ -1762,6 +1853,42 @@ def _importeer(aanvraag, deel="alles"):
             continue
 
         laag_index = zorg_voor_laag(archicad_laag)
+        if not aanvraag.get("forceer2d"):
+            overgeslagen_v = overgeslagen_l = 0
+            if vlakken:                                      # vullingen: op Element-ID
+                if gedeeld.get("vlak_ids") is None:
+                    try:
+                        gedeeld["vlak_ids"] = bestaande_vlak_ids()
+                    except Exception as fout:
+                        gedeeld["vlak_ids"] = set()
+                        print(f"De bestaande vullingen lezen mislukt ({fout}); dubbelen worden niet herkend.")
+                bestaand_ids = gedeeld["vlak_ids"]
+                nieuwe_v = [v for v in vlakken if not v.get("id") or v["id"] not in bestaand_ids]
+                overgeslagen_v = len(vlakken) - len(nieuwe_v)
+                bestaand_ids.update(v["id"] for v in nieuwe_v if v.get("id"))
+                vlakken = nieuwe_v
+            if lijnen:                                       # polylijnen: op geometrie
+                sleutels = gedeeld.setdefault("lijn_sleutels", {})
+                if laag_index not in sleutels:
+                    try:
+                        sleutels[laag_index] = bestaande_lijnsleutels(laag_index)
+                    except Exception as fout:
+                        sleutels[laag_index] = set()
+                        print(f"De bestaande lijnen lezen mislukt ({fout}); dubbelen worden niet herkend.")
+                gezien_l = sleutels[laag_index]
+                nieuwe_l = []
+                for lijn in lijnen:
+                    sl = lijn_sleutel(lijn)
+                    if sl not in gezien_l:
+                        gezien_l.add(sl)
+                        nieuwe_l.append(lijn)
+                overgeslagen_l = len(lijnen) - len(nieuwe_l)
+                lijnen = nieuwe_l
+            if overgeslagen_v or overgeslagen_l:
+                print(f"{sleutel}: {overgeslagen_v} vlakken en {overgeslagen_l} lijnen stonden al in het project en zijn overgeslagen.")
+            if not vlakken and not lijnen and not perceel_labels:
+                print(f"{sleutel}: niets nieuws om te tekenen")
+                continue
         kleur = KLEUREN.get(laag) if bron == "bgt" else None
         gebruik_stijl = bool(aanvraag.get("stijl2d")) and bron == "bgt" and stijl is not None
         verfijnd = bool(aanvraag.get("verfijnd2d")) and bron == "bgt" and stijl is not None     # de vlakken over lagen per soort verdelen

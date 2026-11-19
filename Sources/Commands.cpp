@@ -405,6 +405,65 @@ GS::ObjectState MeshDetails (const API_Guid& guid)
     return details;
 }
 
+// ---- de contouren van een polylijn of vulling, voor GetDetailsOfElements: {contours: [{points: [{x, y}]}]}. De eerste contour is de
+//      buitenrand (bij een polylijn de lijn zelf), de rest zijn gaten. Bogen worden niet meegegeven. Gebruikt om dubbele 2D-elementen te herkennen.
+GS::ObjectState ContourDetails (const API_Guid& guid)
+{
+    GS::ObjectState details;
+    API_ElementMemo memo = {};
+    if (ACAPI_Element_GetMemo (guid, &memo, APIMemoMask_Polygon) == NoError && memo.coords != nullptr) {
+        const GSSize coordinateCount = static_cast<GSSize> (BMhGetSize (reinterpret_cast<GSHandle> (memo.coords)) / sizeof (API_Coord)) - 1;
+        const GSSize contourCount = memo.pends == nullptr ? 1 : BMhGetSize (reinterpret_cast<GSHandle> (memo.pends)) / sizeof (Int32) - 1;
+        const auto& contours = details.AddList<GS::ObjectState> ("contours");
+        Int32 start = 1;
+        for (GSIndex contour = 0; contour < contourCount; ++contour) {
+            const Int32 end = memo.pends == nullptr ? static_cast<Int32> (coordinateCount) : (*memo.pends)[contour + 1];
+            GS::ObjectState contourState;
+            const auto& points = contourState.AddList<GS::ObjectState> ("points");
+            for (Int32 i = start; i <= end; ++i) {
+                GS::ObjectState point;
+                point.Add ("x", (*memo.coords)[i].x);
+                point.Add ("y", (*memo.coords)[i].y);
+                points (point);
+            }
+            contours (contourState);
+            start = end + 1;
+        }
+    }
+    ACAPI_DisposeElemMemoHdls (&memo);
+    return details;
+}
+
+// ---- de plek van een tekst, voor GetDetailsOfElements: {location: {x, y}}
+GS::ObjectState TextDetails (const API_Guid& guid)
+{
+    GS::ObjectState details;
+    API_Element element = {};
+    element.header.guid = guid;
+    if (ACAPI_Element_Get (&element) == NoError) {
+        GS::ObjectState location;
+        location.Add ("x", element.text.loc.x);
+        location.Add ("y", element.text.loc.y);
+        details.Add ("location", location);
+    }
+    return details;
+}
+
+// De extra gegevens per elementtype voor GetDetailsOfElements (leeg voor de andere typen).
+GS::ObjectState DetailsOfType (const API_Guid& guid, API_ElemTypeID typeId)
+{
+    if (typeId == API_MeshID) {
+        return MeshDetails (guid);
+    }
+    if (typeId == API_PolyLineID || typeId == API_HatchID) {
+        return ContourDetails (guid);
+    }
+    if (typeId == API_TextID) {
+        return TextDetails (guid);
+    }
+    return GS::ObjectState ();
+}
+
 // ---- GetDetailsOfElements {elements: [{elementId}]} of {types: [..], layerIndices: [..]}
 //      -> {detailsOfElements: [{elementId, type, layerIndex, floorIndex, id, details: {}}]}
 class GetDetailsOfElementsCommand final : public CommandBase
@@ -463,7 +522,7 @@ public:
             detail.Add ("layerIndex", layer);
             detail.Add ("floorIndex", static_cast<Int32> (head.floorInd));
             detail.Add ("id", id);
-            detail.Add ("details", (withDetails && head.type.typeID == API_MeshID) ? MeshDetails (guid) : GS::ObjectState ());
+            detail.Add ("details", withDetails ? DetailsOfType (guid, head.type.typeID) : GS::ObjectState ());
             list (detail);
         }
         return response;
