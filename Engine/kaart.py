@@ -1088,9 +1088,16 @@ def feature_id(feature):
     return "g" + format(zlib.crc32(json.dumps(feature.get("geometry"), sort_keys=True).encode()) & 0xFFFFFFFF, "08x")
 
 
+def _cm(v):
+    """Een coordinaat in vakjes van 1 cm. De grens ligt niet op een halve centimeter maar op een kwart erover (floor(v*100 + 0,25)):
+    brongegevens hebben millimeters en puntsymbolen liggen op een vaste afstand van het punt, dus met gewoon afronden liggen veel
+    hoekpunten precies op een grens en kan een afwijking van een fractie een element als nieuw laten gelden."""
+    return math.floor(v * 100 + 0.25)
+
+
 def _punten_sleutel(punten):
-    """Sleutel van een rij punten [(x, y)]: op 1 cm afgerond; gesloten ringen met het kleinste punt als begin; richting vrij."""
-    r = [(round(x * 100), round(y * 100)) for x, y in punten]
+    """Sleutel van een rij punten [(x, y)]: op 1 cm; gesloten ringen met het kleinste punt als begin; richting vrij."""
+    r = [(_cm(x), _cm(y)) for x, y in punten]
     if len(r) > 1 and r[0] == r[-1]:
         r.pop()
         k = r.index(min(r))
@@ -1139,7 +1146,7 @@ def bestaande_tekstplekken(laag_index):
         loc = (x.get("details") or {}).get("location") if isinstance(x, dict) and x.get("layerIndex") == laag_index else None
         if loc:
             rx, ry = _naar_rd_xy(loc["x"], loc["y"])
-            uit.add((round(rx * 100), round(ry * 100)))
+            uit.add((_cm(rx), _cm(ry)))
     return uit
 
 
@@ -1153,7 +1160,7 @@ def teken_teksten(laagnaam, teksten, hoogte, pen):
         aanwezig = set()
         print(f"{laagnaam}: de bestaande teksten lezen mislukt ({fout}); dubbelen worden niet herkend.")
     if aanwezig:
-        nieuw = [t for t in teksten if (round(t["x"] * 100), round(t["y"] * 100)) not in aanwezig]
+        nieuw = [t for t in teksten if (_cm(t["x"]), _cm(t["y"])) not in aanwezig]
         if len(nieuw) < len(teksten):
             print(f"{laagnaam}: {len(teksten) - len(nieuw)} teksten staan al op die plek en worden overgeslagen.")
         teksten = nieuw
